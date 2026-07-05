@@ -384,3 +384,130 @@ export const downloadTemplate = () => {
   link.download = '家族成员导入模板.xlsx';
   link.click();
 };
+
+// ==================== 关系单独导入 ====================
+
+export interface RelationImportPreview {
+  relations: Array<{
+    sourceName: string;
+    targetName: string;
+    type: string;
+    subType?: string;
+  }>;
+  skippedExisting: Array<{
+    sourceName: string;
+    targetName: string;
+    type: string;
+    reason: string;
+  }>;
+  errors: string[];
+  warnings: string[];
+}
+
+/**
+ * 仅导入关系 Excel（不导入成员，根据姓名匹配现有成员）
+ */
+export const importRelationsFromExcel = async (
+  file: File,
+  existingMembers: Array<{ id: string; name: string }>,
+  existingRelations: Array<{ sourceId: string; targetId: string; type: string }>,
+  customRelationTypes: Array<{
+    type: string;
+    label: string;
+    subTypes: Array<{ value: string; label: string }>;
+  }> = [],
+): Promise<RelationImportPreview> => {
+  const workbook = await parseExcelFile(file);
+
+  // 查找关系工作表
+  let relationsData: Array<{
+    sourceName: string;
+    targetName: string;
+    type: string;
+    subType?: string;
+  }> = [];
+
+  const relationsSheet = workbook.Sheets['关系列表'] || workbook.Sheets['Relations'] || workbook.Sheets[workbook.SheetNames[0]];
+  if (relationsSheet) {
+    relationsData = parseRelationsSheet(relationsSheet);
+  }
+
+  // 构建成员姓名 → ID 映射
+  const nameToId: Record<string, string> = {};
+  const nameToIdCaseInsensitive: Record<string, string> = {};
+  existingMembers.forEach((m) => {
+    nameToId[m.name] = m.id;
+    nameToIdCaseInsensitive[m.name.toLowerCase()] = m.id;
+  });
+
+  // 构建已有关系去重键
+  const existingRelationKeys = new Set<string>();
+  existingRelations.forEach((r) => {
+    const key1 = `${r.sourceId}-${r.targetId}-${r.type}`;
+    const key2 = `${r.targetId}-${r.sourceId}-${r.type}`;
+    existingRelationKeys.add(key1);
+    existingRelationKeys.add(key2);
+  });
+
+  // 验证关系
+  const memberNames = new Set(existingMembers.map((m) => m.name));
+  const { valid, errors, warnings } = validateRelations(relationsData, memberNames, customRelationTypes);
+
+  // 进一步过滤：已存在的关系标记为跳过
+  const newRelations: RelationImportPreview['relations'] = [];
+  const skippedExisting: RelationImportPreview['skippedExisting'] = [];
+
+  valid.forEach((r) => {
+    const sourceId = nameToId[r.sourceName] || nameToIdCaseInsensitive[r.sourceName.toLowerCase()];
+    const targetId = nameToId[r.targetName] || nameToIdCaseInsensitive[r.targetName.toLowerCase()];
+
+    if (!sourceId || !targetId) return; // 已在 validateRelations 中报错
+
+    const dedupeKey1 = `${sourceId}-${targetId}-${r.type}`;
+    const dedupeKey2 = `${targetId}-${sourceId}-${r.type}`;
+
+    if (existingRelationKeys.has(dedupeKey1) || existingRelationKeys.has(dedupeKey2)) {
+      skippedExisting.push({
+        sourceName: r.sourceName,
+        targetName: r.targetName,
+        type: r.type,
+        reason: '该关系已存在',
+      });
+    } else {
+      newRelations.push(r);
+    }
+  });
+
+  if (skippedExisting.length > 0) {
+    warnings.push(`${skippedExisting.length} 条关系已存在，将跳过`);
+  }
+
+  return {
+    relations: newRelations,
+    skippedExisting,
+    errors,
+    warnings,
+  };
+};
+
+/**
+ * 下载关系导入模板
+ */
+export const downloadRelationTemplate = () => {
+  const header = ['成员A姓名', '成员B姓名', '关系类型', '具体关系'];
+  const example1 = ['张三', '张四', 'parent-child', 'father-son'];
+  const example2 = ['张三', '李四', 'spouse', 'husband-wife'];
+  const example3 = ['张四', '张五', 'sibling', 'brother-brother'];
+
+  const ws = XLSX.utils.aoa_to_sheet([header, example1, example2, example3]);
+  ws['!cols'] = [
+    { wch: 14 },
+    { wch: 14 },
+    { wch: 16 },
+    { wch: 16 },
+  ];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '关系列表');
+  XLSX.writeFile(wb, '关系导入模板.xlsx');
+};
