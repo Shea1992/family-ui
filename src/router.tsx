@@ -1,11 +1,11 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { createHashRouter } from 'react-router-dom';
 import { Layout } from './components/Layout/index.tsx';
 import Home from './pages/Home/index.tsx';
 import MemberList from './pages/MemberList/index.tsx';
 import MemberEdit from './pages/MemberEdit/index.tsx';
 import RelationEdit from './pages/RelationEdit/index.tsx';
 
-export const router = createBrowserRouter([
+export const router = createHashRouter([
   {
     path: '/',
     element: <Layout />,
