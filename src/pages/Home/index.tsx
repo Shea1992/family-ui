@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Card,
@@ -27,6 +27,7 @@ import {
 } from '@ant-design/icons';
 import { useFamilyStore } from '../../stores/familyStore';
 import { ForceGraph } from '../../components/ForceGraph';
+import type { ForceGraphHandle } from '../../components/ForceGraph';
 import type { MemberNode } from '../../types/member';
 import type { RelationLink } from '../../types/relation';
 import { COLORS } from '../../constants';
@@ -35,6 +36,7 @@ const { Search } = Input;
 
 const Home: React.FC = () => {
   const navigate = useNavigate();
+  const graphRef = useRef<ForceGraphHandle>(null);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [detailOpen, setDetailOpen] = useState(false);
 
@@ -148,7 +150,15 @@ const Home: React.FC = () => {
         return;
       }
       const results = searchMembers(value);
-      setHighlightedMembers(results.map((m) => m.id));
+      const ids = results.map((m) => m.id);
+      setHighlightedMembers(ids);
+      // 聚焦到第一个搜索结果
+      if (ids.length > 0) {
+        // 延迟一帧让高亮状态先应用到图谱
+        setTimeout(() => {
+          graphRef.current?.focusOnNode(ids[0]);
+        }, 50);
+      }
     },
     [searchMembers, setHighlightedMembers]
   );
@@ -363,19 +373,20 @@ const Home: React.FC = () => {
             <Button icon={<MinusOutlined />} onClick={collapseAll} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
           </Tooltip>
           <Tooltip title="放大">
-            <Button icon={<ZoomInOutlined />} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
+            <Button icon={<ZoomInOutlined />} onClick={() => graphRef.current?.zoomIn()} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
           </Tooltip>
           <Tooltip title="缩小">
-            <Button icon={<ZoomOutOutlined />} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
+            <Button icon={<ZoomOutOutlined />} onClick={() => graphRef.current?.zoomOut()} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
           </Tooltip>
           <Tooltip title="适应屏幕">
-            <Button icon={<FullscreenOutlined />} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
+            <Button icon={<FullscreenOutlined />} onClick={() => graphRef.current?.fitToScreen()} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
           </Tooltip>
         </Space>
       </Card>
 
       {/* 力导向图 */}
       <ForceGraph
+        ref={graphRef}
         nodes={graphData.nodes}
         links={graphData.links}
         selectedNodeId={selectedMemberId}
