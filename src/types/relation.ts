@@ -1,13 +1,18 @@
 // 关系类型定义
 
-export type RelationType = 'parent-child' | 'spouse' | 'sibling';
+// 预置关系类型
+export type BuiltinRelationType = 'parent-child' | 'spouse' | 'sibling';
 
-// 关系子类型
+// 支持自定义关系类型
+export type RelationType = string;
+
+// 预置关系子类型
 export type ParentChildSubType = 'father-son' | 'father-daughter' | 'mother-son' | 'mother-daughter';
 export type SpouseSubType = 'husband-wife';
 export type SiblingSubType = 'brother-brother' | 'brother-sister' | 'sister-sister';
 
-export type RelationSubType = ParentChildSubType | SpouseSubType | SiblingSubType;
+// 支持自定义子类型
+export type RelationSubType = string;
 
 export interface Relation {
   id: string;
@@ -30,6 +35,17 @@ export interface RelationFormData {
   targetId: string;
   type: RelationType;
   subType?: RelationSubType;
+}
+
+// 自定义关系类型定义
+export interface CustomRelationTypeDefinition {
+  type: string;          // 类型标识，如 'in-law'
+  label: string;         // 显示名称，如 '亲家'
+  color: string;         // 连线颜色，如 '#8b5cf6'
+  subTypes: Array<{
+    value: string;       // 子类型标识，如 'father-in-law-son'
+    label: string;       // 子类型显示名，如 '岳父-女婿'
+  }>;
 }
 
 import type { MemberNode } from './member';
