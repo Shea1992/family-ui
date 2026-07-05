@@ -1,19 +1,35 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Table, Card, Button, Space, Tag, Avatar, Popconfirm, message } from 'antd';
-import { EditOutlined, DeleteOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
+import { EditOutlined, DeleteOutlined, PlusOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useFamilyStore } from '../../stores/familyStore';
 import { ImportModal } from '../../components/ImportModal';
+import { exportMembersToExcel } from '../../services/exportService';
 import type { Member } from '../../types/member';
 
 const MemberList: React.FC = () => {
   const navigate = useNavigate();
-  const { members, deleteMember, getMemberRelations } = useFamilyStore();
+  const { members, deleteMember, getMemberRelations, getMemberById, getRelationTypeLabel, getSubTypeLabel } = useFamilyStore();
   const [importModalOpen, setImportModalOpen] = useState(false);
 
   const handleDelete = (id: string) => {
     deleteMember(id);
     message.success('成员已删除');
+  };
+
+  const handleExport = () => {
+    if (members.length === 0) {
+      message.warning('暂无数据可导出');
+      return;
+    }
+    exportMembersToExcel(
+      members,
+      getRelationTypeLabel,
+      getSubTypeLabel,
+      getMemberRelations,
+      getMemberById,
+    );
+    message.success('导出成功');
   };
 
   const columns = [
@@ -125,6 +141,13 @@ const MemberList: React.FC = () => {
         title="成员列表"
         extra={
           <Space>
+            <Button
+              icon={<DownloadOutlined />}
+              onClick={handleExport}
+              disabled={members.length === 0}
+            >
+              导出Excel
+            </Button>
             <Button
               icon={<UploadOutlined />}
               onClick={() => setImportModalOpen(true)}
