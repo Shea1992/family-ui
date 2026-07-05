@@ -47,6 +47,23 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
   const zoomRef = useRef<d3.ZoomBehavior<any, any> | null>(null);
   const gRef = useRef<d3.Selection<SVGGElement, any, any, any> | null>(null);
   const simulatedNodesRef = useRef<any[]>([]);
+  const nodeElementsRef = useRef<any>(null);
+
+  // 用 ref 持有选中/高亮最新值，主 effect 不依赖它们
+  const selectedNodeIdRef = useRef(selectedNodeId);
+  const highlightedNodeIdsRef = useRef(highlightedNodeIds);
+  const collapsedNodeIdsRef = useRef(collapsedNodeIds);
+  const hasChildrenMapRef = useRef(hasChildrenMap);
+  const onNodeClickRef = useRef(onNodeClick);
+  const onNodeDoubleClickRef = useRef(onNodeDoubleClick);
+
+  // 每次渲染更新 ref
+  selectedNodeIdRef.current = selectedNodeId;
+  highlightedNodeIdsRef.current = highlightedNodeIds;
+  collapsedNodeIdsRef.current = collapsedNodeIds;
+  hasChildrenMapRef.current = hasChildrenMap;
+  onNodeClickRef.current = onNodeClick;
+  onNodeDoubleClickRef.current = onNodeDoubleClick;
 
   // 获取性别颜色
   const getGenderColor = useCallback((gender: string) => {
@@ -77,79 +94,11 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
     }
   }, [getRelationTypeColorProp, customRelationTypes]);
 
-  // 暴露给父组件的方法
-  useImperativeHandle(ref, () => ({
-    zoomIn: () => {
-      const svg = d3.select(svgRef.current!);
-      const zoomBehavior = zoomRef.current;
-      if (!zoomBehavior) return;
-      svg.transition().duration(300).call(zoomBehavior.scaleBy as any, 1.4);
-    },
-    zoomOut: () => {
-      const svg = d3.select(svgRef.current!);
-      const zoomBehavior = zoomRef.current;
-      if (!zoomBehavior) return;
-      svg.transition().duration(300).call(zoomBehavior.scaleBy as any, 1 / 1.4);
-    },
-    fitToScreen: () => {
-      const svg = d3.select(svgRef.current!);
-      const g = gRef.current;
-      const zoomBehavior = zoomRef.current;
-      if (!g || !zoomBehavior || !containerRef.current) return;
-
-      const width = containerRef.current.clientWidth;
-      const height = containerRef.current.clientHeight;
-
-      // 获取当前 g 的边界
-      const bounds = (g.node() as SVGGElement).getBBox();
-      if (bounds.width === 0 || bounds.height === 0) return;
-
-      const fullWidth = bounds.width + 80;
-      const fullHeight = bounds.height + 80;
-      const midX = bounds.x + bounds.width / 2;
-      const midY = bounds.y + bounds.height / 2;
-
-      const scale = Math.min(width / fullWidth, height / fullHeight, 2);
-      const transform = d3.zoomIdentity
-        .translate(width / 2, height / 2)
-        .scale(scale)
-        .translate(-midX, -midY);
-
-      svg.transition().duration(500).call(zoomBehavior.transform as any, transform);
-    },
-    focusOnNode: (nodeId: string) => {
-      const svg = d3.select(svgRef.current!);
-      const zoomBehavior = zoomRef.current;
-      const container = containerRef.current;
-      if (!zoomBehavior || !container) return;
-
-      // 从 simulation 节点数据中查找目标
-      const target = simulatedNodesRef.current.find((n: any) => n.id === nodeId);
-      if (!target || target.x == null || target.y == null) return;
-
-      const width = container.clientWidth;
-      const height = container.clientHeight;
-
-      // 获取当前缩放级别
-      const currentTransform = d3.zoomTransform(svgRef.current!);
-      const scale = currentTransform.k;
-
-      const transform = d3.zoomIdentity
-        .translate(width / 2, height / 2)
-        .scale(scale)
-        .translate(-target.x, -target.y);
-
-      svg.transition().duration(600).call(zoomBehavior.transform as any, transform);
-    },
-  }), []);
-
   // 获取关系类型显示文本
   const getRelationLabel = useCallback((type: string, subType?: string) => {
-    // 优先使用 store 提供的方法
     if (subType && getSubTypeLabelProp) return getSubTypeLabelProp(type, subType);
     if (!subType && getRelationTypeLabelProp) return getRelationTypeLabelProp(type);
 
-    // fallback 本地映射
     const subTypeMap: Record<string, string> = {
       'father-son': '父子',
       'father-daughter': '父女',
@@ -174,6 +123,70 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
     return typeMap[type] || type;
   }, [getSubTypeLabelProp, getRelationTypeLabelProp]);
 
+  // 暴露给父组件的方法
+  useImperativeHandle(ref, () => ({
+    zoomIn: () => {
+      const svg = d3.select(svgRef.current!);
+      const zoomBehavior = zoomRef.current;
+      if (!zoomBehavior) return;
+      svg.transition().duration(300).call(zoomBehavior.scaleBy as any, 1.4);
+    },
+    zoomOut: () => {
+      const svg = d3.select(svgRef.current!);
+      const zoomBehavior = zoomRef.current;
+      if (!zoomBehavior) return;
+      svg.transition().duration(300).call(zoomBehavior.scaleBy as any, 1 / 1.4);
+    },
+    fitToScreen: () => {
+      const svg = d3.select(svgRef.current!);
+      const g = gRef.current;
+      const zoomBehavior = zoomRef.current;
+      if (!g || !zoomBehavior || !containerRef.current) return;
+
+      const width = containerRef.current.clientWidth;
+      const height = containerRef.current.clientHeight;
+
+      const bounds = (g.node() as SVGGElement).getBBox();
+      if (bounds.width === 0 || bounds.height === 0) return;
+
+      const fullWidth = bounds.width + 80;
+      const fullHeight = bounds.height + 80;
+      const midX = bounds.x + bounds.width / 2;
+      const midY = bounds.y + bounds.height / 2;
+
+      const scale = Math.min(width / fullWidth, height / fullHeight, 2);
+      const transform = d3.zoomIdentity
+        .translate(width / 2, height / 2)
+        .scale(scale)
+        .translate(-midX, -midY);
+
+      svg.transition().duration(500).call(zoomBehavior.transform as any, transform);
+    },
+    focusOnNode: (nodeId: string) => {
+      const svg = d3.select(svgRef.current!);
+      const zoomBehavior = zoomRef.current;
+      const container = containerRef.current;
+      if (!zoomBehavior || !container) return;
+
+      const target = simulatedNodesRef.current.find((n: any) => n.id === nodeId);
+      if (!target || target.x == null || target.y == null) return;
+
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+
+      const currentTransform = d3.zoomTransform(svgRef.current!);
+      const scale = currentTransform.k;
+
+      const transform = d3.zoomIdentity
+        .translate(width / 2, height / 2)
+        .scale(scale)
+        .translate(-target.x, -target.y);
+
+      svg.transition().duration(600).call(zoomBehavior.transform as any, transform);
+    },
+  }), []);
+
+  // ==================== 主 effect：仅依赖结构数据 ====================
   useEffect(() => {
     if (!svgRef.current || !containerRef.current) return;
 
@@ -184,69 +197,40 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
     svg.selectAll('*').remove();
     svg.attr('width', width).attr('height', height);
 
-    // 定义渐变背景
+    // ---- 定义渐变与滤镜 ----
     const defs = svg.append('defs');
 
-    // 背景渐变
     const bgGradient = defs.append('radialGradient')
       .attr('id', 'bg-gradient')
-      .attr('cx', '50%')
-      .attr('cy', '50%')
-      .attr('r', '70%');
-    bgGradient.append('stop')
-      .attr('offset', '0%')
-      .attr('stop-color', '#1a1a2e');
-    bgGradient.append('stop')
-      .attr('offset', '100%')
-      .attr('stop-color', '#0d0d1a');
+      .attr('cx', '50%').attr('cy', '50%').attr('r', '70%');
+    bgGradient.append('stop').attr('offset', '0%').attr('stop-color', '#1a1a2e');
+    bgGradient.append('stop').attr('offset', '100%').attr('stop-color', '#0d0d1a');
 
-    // 节点光晕滤镜
     const glowFilter = defs.append('filter')
       .attr('id', 'glow')
-      .attr('x', '-50%')
-      .attr('y', '-50%')
-      .attr('width', '200%')
-      .attr('height', '200%');
-    glowFilter.append('feGaussianBlur')
-      .attr('stdDeviation', '4')
-      .attr('result', 'coloredBlur');
+      .attr('x', '-50%').attr('y', '-50%').attr('width', '200%').attr('height', '200%');
+    glowFilter.append('feGaussianBlur').attr('stdDeviation', '4').attr('result', 'coloredBlur');
     const feMerge = glowFilter.append('feMerge');
     feMerge.append('feMergeNode').attr('in', 'coloredBlur');
     feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
 
-    // 选中节点强烈光晕
     const strongGlowFilter = defs.append('filter')
       .attr('id', 'strong-glow')
-      .attr('x', '-80%')
-      .attr('y', '-80%')
-      .attr('width', '260%')
-      .attr('height', '260%');
-    strongGlowFilter.append('feGaussianBlur')
-      .attr('stdDeviation', '8')
-      .attr('result', 'coloredBlur');
+      .attr('x', '-80%').attr('y', '-80%').attr('width', '260%').attr('height', '260%');
+    strongGlowFilter.append('feGaussianBlur').attr('stdDeviation', '8').attr('result', 'coloredBlur');
     const feMerge2 = strongGlowFilter.append('feMerge');
     feMerge2.append('feMergeNode').attr('in', 'coloredBlur');
     feMerge2.append('feMergeNode').attr('in', 'SourceGraphic');
 
-    // 性别光晕渐变
     ['male', 'female', 'other'].forEach((gender) => {
       const color = getGenderColor(gender);
       const gradient = defs.append('radialGradient')
         .attr('id', `glow-gradient-${gender}`)
-        .attr('cx', '50%')
-        .attr('cy', '50%')
-        .attr('r', '50%');
-      gradient.append('stop')
-        .attr('offset', '0%')
-        .attr('stop-color', color)
-        .attr('stop-opacity', 0.6);
-      gradient.append('stop')
-        .attr('offset', '100%')
-        .attr('stop-color', color)
-        .attr('stop-opacity', 0);
+        .attr('cx', '50%').attr('cy', '50%').attr('r', '50%');
+      gradient.append('stop').attr('offset', '0%').attr('stop-color', color).attr('stop-opacity', 0.6);
+      gradient.append('stop').attr('offset', '100%').attr('stop-color', color).attr('stop-opacity', 0);
     });
 
-    // 定义箭头标记 - 血缘关系
     defs.append('marker')
       .attr('id', 'arrow-parent-child')
       .attr('viewBox', '0 -5 10 10')
@@ -260,65 +244,37 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
       .attr('fill', COLORS.PARENT_CHILD)
       .attr('opacity', 0.8);
 
-    // 创建背景
-    svg.append('rect')
-      .attr('width', width)
-      .attr('height', height)
-      .attr('fill', 'url(#bg-gradient)');
+    // ---- 背景 ----
+    svg.append('rect').attr('width', width).attr('height', height).attr('fill', 'url(#bg-gradient)');
 
-    // 添加网格背景
     const gridPattern = defs.append('pattern')
       .attr('id', 'grid-pattern')
-      .attr('width', 40)
-      .attr('height', 40)
+      .attr('width', 40).attr('height', 40)
       .attr('patternUnits', 'userSpaceOnUse');
-    gridPattern.append('circle')
-      .attr('cx', 20)
-      .attr('cy', 20)
-      .attr('r', 0.5)
-      .attr('fill', 'rgba(255,255,255,0.08)');
+    gridPattern.append('circle').attr('cx', 20).attr('cy', 20).attr('r', 0.5).attr('fill', 'rgba(255,255,255,0.08)');
+    svg.append('rect').attr('width', width).attr('height', height).attr('fill', 'url(#grid-pattern)');
 
-    svg.append('rect')
-      .attr('width', width)
-      .attr('height', height)
-      .attr('fill', 'url(#grid-pattern)');
-
-    // 创建容器组
+    // ---- 容器组 ----
     const g = svg.append('g');
     gRef.current = g;
 
-    // 准备节点和连线数据
+    // ---- 节点与连线数据 ----
     const simulatedNodes = nodes.map(n => ({ ...n }));
     const simulatedLinks = links.map(l => ({ ...l }));
     simulatedNodesRef.current = simulatedNodes;
 
-    // 创建力模拟器 - 优化参数
+    // ---- 力仿真 ----
     const simulation = d3.forceSimulation(simulatedNodes as any)
-      .force(
-        'link',
-        d3.forceLink(simulatedLinks)
-          .id((d: any) => d.id)
-          .distance(FORCE_GRAPH_CONFIG.LINK_DISTANCE)
-          .strength(0.6)
-      )
-      .force(
-        'charge',
-        d3.forceManyBody()
-          .strength(FORCE_GRAPH_CONFIG.CHARGE_STRENGTH)
-          .distanceMin(30)
-          .distanceMax(800)
-      )
+      .force('link', d3.forceLink(simulatedLinks).id((d: any) => d.id).distance(FORCE_GRAPH_CONFIG.LINK_DISTANCE).strength(0.6))
+      .force('charge', d3.forceManyBody().strength(FORCE_GRAPH_CONFIG.CHARGE_STRENGTH).distanceMin(30).distanceMax(800))
       .force('center', d3.forceCenter(width / 2, height / 2).strength(FORCE_GRAPH_CONFIG.CENTER_STRENGTH))
-      .force(
-        'collision',
-        d3.forceCollide().radius(FORCE_GRAPH_CONFIG.COLLISION_RADIUS).strength(0.8)
-      )
+      .force('collision', d3.forceCollide().radius(FORCE_GRAPH_CONFIG.COLLISION_RADIUS).strength(0.8))
       .force('x', d3.forceX(width / 2).strength(0.03))
       .force('y', d3.forceY(height / 2).strength(0.03));
 
     simulationRef.current = simulation;
 
-    // 渲染连线 - 添加流动粒子动画
+    // ---- 渲染连线 ----
     const linkGroup = g.append('g').attr('class', 'links');
 
     const linkElements = linkGroup
@@ -330,16 +286,12 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
       .attr('stroke-width', 2)
       .attr('stroke-dasharray', (d: any) => {
         if (d.type === 'spouse') return '8,4';
-        // 自定义类型用点线
         if (!['parent-child', 'spouse', 'sibling'].includes(d.type)) return '4,4';
         return '0';
       })
       .attr('stroke-opacity', 0.5)
-      .attr('marker-end', (d: any) =>
-        d.type === 'parent-child' ? 'url(#arrow-parent-child)' : ''
-      );
+      .attr('marker-end', (d: any) => d.type === 'parent-child' ? 'url(#arrow-parent-child)' : '');
 
-    // 连线上的流动粒子（小圆点沿连线移动）
     const flowParticles = linkGroup
       .selectAll('.flow-particle')
       .data(simulatedLinks)
@@ -349,9 +301,7 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
       .attr('fill', (d: any) => getLinkColor(d.type))
       .attr('opacity', 0.7);
 
-    // 渲染关系标签
-    const linkLabels = g
-      .append('g')
+    const linkLabels = g.append('g')
       .selectAll('.link-label')
       .data(simulatedLinks)
       .join('text')
@@ -364,7 +314,7 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
       .style('text-shadow', '0 0 6px rgba(0,0,0,0.8)')
       .text((d: any) => getRelationLabel(d.type, d.subType));
 
-    // 渲染节点组
+    // ---- 渲染节点 ----
     const nodeGroup = g.append('g').attr('class', 'nodes');
 
     const nodeElements = nodeGroup
@@ -374,24 +324,20 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
       .attr('class', 'node')
       .style('cursor', 'grab');
 
-    // 处理照片 pattern
+    nodeElementsRef.current = nodeElements;
+
+    // 照片 pattern
     simulatedNodes.forEach((node: any) => {
       if (node.photo) {
         const patternId = `photo-${node.id}`;
         if (defs.select(`#${patternId}`).empty()) {
           defs.append('pattern')
             .attr('id', patternId)
-            .attr('x', 0)
-            .attr('y', 0)
-            .attr('width', 1)
-            .attr('height', 1)
+            .attr('x', 0).attr('y', 0).attr('width', 1).attr('height', 1)
             .attr('patternContentUnits', 'objectBoundingBox')
             .append('image')
             .attr('href', node.photo)
-            .attr('x', 0)
-            .attr('y', 0)
-            .attr('width', 1)
-            .attr('height', 1)
+            .attr('x', 0).attr('y', 0).attr('width', 1).attr('height', 1)
             .attr('preserveAspectRatio', 'xMidYMid slice');
         }
       }
@@ -405,29 +351,28 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
       .attr('fill', (d: any) => `url(#glow-gradient-${d.gender === 'male' ? 'male' : d.gender === 'female' ? 'female' : 'other'})`)
       .attr('opacity', 0.3);
 
-    // 节点主圆形
+    // 节点主圆形 — 初始样式用 ref 值
+    const curSelected = selectedNodeIdRef.current;
+    const curHighlighted = highlightedNodeIdsRef.current;
+
     nodeElements
       .append('circle')
       .attr('class', 'node-circle')
       .attr('r', FORCE_GRAPH_CONFIG.NODE_RADIUS)
       .attr('fill', (d: any) => {
-        if (d.photo) {
-          return `url(#photo-${d.id})`;
-        }
-        // 渐变填充
+        if (d.photo) return `url(#photo-${d.id})`;
         return getGenderColor(d.gender);
       })
       .attr('stroke', (d: any) => {
-        if (d.id === selectedNodeId) return '#fff';
-        if (highlightedNodeIds.includes(d.id)) return '#ffd700';
+        if (d.id === curSelected) return '#fff';
+        if (curHighlighted.includes(d.id)) return '#ffd700';
         return 'rgba(255,255,255,0.3)';
       })
       .attr('stroke-width', (d: any) =>
-        d.id === selectedNodeId || highlightedNodeIds.includes(d.id) ? 3 : 1.5
+        d.id === curSelected || curHighlighted.includes(d.id) ? 3 : 1.5
       )
       .attr('filter', (d: any) => {
-        if (d.id === selectedNodeId) return 'url(#strong-glow)';
-        if (highlightedNodeIds.includes(d.id)) return 'url(#strong-glow)';
+        if (d.id === curSelected || curHighlighted.includes(d.id)) return 'url(#strong-glow)';
         return 'url(#glow)';
       });
 
@@ -443,9 +388,12 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
       .style('pointer-events', 'none')
       .style('text-shadow', '0 0 8px rgba(0,0,0,0.9), 0 0 16px rgba(0,0,0,0.6)');
 
-    // 添加展开/折叠指示器
+    // 展开/折叠指示器
+    const curCollapsed = collapsedNodeIdsRef.current;
+    const curHasChildren = hasChildrenMapRef.current;
+
     const indicatorGroup = nodeElements
-      .filter((d: any) => hasChildrenMap[d.id])
+      .filter((d: any) => curHasChildren[d.id])
       .append('g')
       .attr('class', 'collapse-indicator')
       .attr('transform', `translate(${FORCE_GRAPH_CONFIG.NODE_RADIUS - 4}, -${FORCE_GRAPH_CONFIG.NODE_RADIUS - 4})`)
@@ -466,9 +414,9 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
       .attr('font-weight', 'bold')
       .attr('fill', '#1890ff')
       .style('pointer-events', 'none')
-      .text((d: any) => collapsedNodeIds.includes(d.id) ? '+' : '-');
+      .text((d: any) => curCollapsed.includes(d.id) ? '+' : '-');
 
-    // --- 拖动行为优化 ---
+    // ---- 拖动行为 ----
     const drag = d3.drag<any, any>()
       .on('start', (event: any, d: any) => {
         if (!event.active) simulation.alphaTarget(0.1).restart();
@@ -484,18 +432,14 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
       })
       .on('end', (event: any, d: any) => {
         if (!event.active) simulation.alphaTarget(0);
-        // 拖动结束后保持固定位置，不再重置 fx/fy
-        // 这样节点不会弹回力导向位置，更稳定
       });
 
     nodeElements.call(drag);
 
-    // --- 节点 hover 效果 ---
+    // ---- 节点 hover ----
     nodeElements
       .on('mouseenter', (event: any, d: any) => {
         hoveredNodeIdRef.current = d.id;
-
-        // 高亮相连节点和连线
         const connectedNodeIds = new Set<string>();
         connectedNodeIds.add(d.id);
 
@@ -523,7 +467,6 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
           return sourceId === d.id || targetId === d.id ? 1 : 0.15;
         });
 
-        // 获取相连节点
         simulatedLinks.forEach((l: any) => {
           const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
           const targetId = typeof l.target === 'object' ? l.target.id : l.target;
@@ -533,20 +476,14 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
 
         nodeElements.select('.node-glow')
           .attr('opacity', (n: any) => connectedNodeIds.has(n.id) ? 0.5 : 0.1);
-
         nodeElements.select('.node-circle')
           .attr('opacity', (n: any) => connectedNodeIds.has(n.id) ? 1 : 0.3);
-
         nodeElements.select('text')
           .attr('opacity', (n: any) => connectedNodeIds.has(n.id) ? 1 : 0.2);
       })
       .on('mouseleave', () => {
         hoveredNodeIdRef.current = null;
-
-        // 恢复所有元素透明度
-        linkElements
-          .attr('stroke-opacity', 0.5)
-          .attr('stroke-width', 2);
+        linkElements.attr('stroke-opacity', 0.5).attr('stroke-width', 2);
         flowParticles.attr('opacity', 0.7);
         linkLabels.attr('opacity', 1);
         nodeElements.select('.node-glow').attr('opacity', 0.3);
@@ -554,7 +491,7 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
         nodeElements.select('text').attr('opacity', 1);
       });
 
-    // --- 动画循环 - 流动粒子 ---
+    // ---- 流动粒子动画 ----
     let animFrame: number;
     let tick = 0;
 
@@ -576,7 +513,7 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
       animFrame = requestAnimationFrame(animateFlowParticles);
     };
 
-    // 更新位置
+    // ---- tick 更新 ----
     simulation.on('tick', () => {
       linkElements
         .attr('x1', (d: any) => d.source?.x || 0)
@@ -606,10 +543,9 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
       );
     });
 
-    // 启动粒子动画
     animateFlowParticles();
 
-    // 添加缩放行为
+    // ---- 缩放行为 ----
     const zoom = d3.zoom()
       .scaleExtent([0.1, 4])
       .on('zoom', (event: any) => {
@@ -617,38 +553,70 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
       });
 
     zoomRef.current = zoom;
-
     svg.call(zoom as any);
 
-    // 点击空白处取消选中
+    // ---- 点击事件 ----
     svg.on('click', () => {
-      onNodeClick?.(null);
+      onNodeClickRef.current?.(null);
     });
 
-    // 节点点击
     nodeElements
       .on('click', (event: any, d: any) => {
         event.stopPropagation();
-        onNodeClick?.(d);
+        onNodeClickRef.current?.(d);
       })
       .on('dblclick', (event: any, d: any) => {
         event.stopPropagation();
-        onNodeDoubleClick?.(d);
+        onNodeDoubleClickRef.current?.(d);
       });
 
-    // 折叠指示器点击
     indicatorGroup
       .on('click', (event: any, d: any) => {
         event.stopPropagation();
-        onNodeDoubleClick?.(d);
+        onNodeDoubleClickRef.current?.(d);
       });
 
     return () => {
       simulation.stop();
       simulationRef.current = null;
+      nodeElementsRef.current = null;
       if (animFrame) cancelAnimationFrame(animFrame);
     };
-  }, [nodes, links, selectedNodeId, highlightedNodeIds, collapsedNodeIds, hasChildrenMap, onNodeClick, onNodeDoubleClick, getGenderColor, getLinkColor, getRelationLabel, getRelationTypeColorProp, getRelationTypeLabelProp, getSubTypeLabelProp, customRelationTypes]);
+  // 仅当结构数据变化时重建图谱
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, links, getGenderColor, getLinkColor, getRelationLabel]);
+
+  // ==================== 独立 effect：响应选中/高亮变化 ====================
+  useEffect(() => {
+    const ne = nodeElementsRef.current;
+    if (!ne) return;
+
+    const selId = selectedNodeId;
+    const hlIds = highlightedNodeIds;
+
+    ne.select('.node-circle')
+      .attr('stroke', (d: any) => {
+        if (d.id === selId) return '#fff';
+        if (hlIds.includes(d.id)) return '#ffd700';
+        return 'rgba(255,255,255,0.3)';
+      })
+      .attr('stroke-width', (d: any) =>
+        d.id === selId || hlIds.includes(d.id) ? 3 : 1.5
+      )
+      .attr('filter', (d: any) => {
+        if (d.id === selId || hlIds.includes(d.id)) return 'url(#strong-glow)';
+        return 'url(#glow)';
+      });
+  }, [selectedNodeId, highlightedNodeIds]);
+
+  // ==================== 独立 effect：响应折叠变化 ====================
+  useEffect(() => {
+    const ne = nodeElementsRef.current;
+    if (!ne) return;
+
+    ne.select('.collapse-indicator text')
+      .text((d: any) => collapsedNodeIds.includes(d.id) ? '+' : '-');
+  }, [collapsedNodeIds]);
 
   return (
     <div
