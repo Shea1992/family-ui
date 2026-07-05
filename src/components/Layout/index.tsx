@@ -1,5 +1,5 @@
 import React from 'react';
-import { Outlet, useLocation, Link } from 'react-router-dom';
+import { Outlet, useLocation, Link, useNavigate } from 'react-router-dom';
 import { Layout as AntLayout, Menu, Button } from 'antd';
 import {
   HomeOutlined,
@@ -12,6 +12,7 @@ const { Header, Content, Footer } = AntLayout;
 
 export const Layout: React.FC = () => {
   const location = useLocation();
+  const navigate = useNavigate();
 
   const menuItems = [
     {
@@ -64,7 +65,7 @@ export const Layout: React.FC = () => {
         <Button
           type="primary"
           icon={<PlusOutlined />}
-          onClick={() => (window.location.href = '/members/new')}
+          onClick={() => navigate('/members/new')}
         >
           添加成员
         </Button>
