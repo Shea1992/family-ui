@@ -2,13 +2,17 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
 import type { Member, MemberFormData } from '../types/member';
-import type { Relation, RelationFormData } from '../types/relation';
+import type { Relation, RelationFormData, CustomRelationTypeDefinition } from '../types/relation';
+import { BUILTIN_RELATION_TYPE_LABELS, BUILTIN_RELATION_SUB_TYPE_LABELS, CUSTOM_RELATION_COLORS } from '../constants';
 
 
 interface FamilyState {
   // 数据
   members: Member[];
   relations: Relation[];
+
+  // 自定义关系类型
+  customRelationTypes: CustomRelationTypeDefinition[];
 
   // 选中状态
   selectedMemberId: string | null;
@@ -28,6 +32,16 @@ interface FamilyState {
   // 操作方法 - 关系
   addRelation: (data: RelationFormData) => Relation;
   deleteRelation: (id: string) => void;
+
+  // 操作方法 - 自定义关系类型
+  addCustomRelationType: (definition: Omit<CustomRelationTypeDefinition, 'color'> & { color?: string }) => void;
+  updateCustomRelationType: (type: string, updates: Partial<CustomRelationTypeDefinition>) => void;
+  deleteCustomRelationType: (type: string) => void;
+  getAllRelationTypes: () => Array<{ value: string; label: string; isCustom: boolean; color: string; subTypes: Array<{ value: string; label: string }> }>;
+  getRelationTypeColor: (type: string) => string;
+  getRelationTypeLabel: (type: string) => string;
+  getSubTypeLabel: (type: string, subType?: string) => string;
+  getSubTypeOptions: (type: string) => Array<{ value: string; label: string }>;
 
   // 操作方法 - 选中
   setSelectedMember: (id: string | null) => void;
@@ -64,6 +78,7 @@ export const useFamilyStore = create<FamilyState>()(
       // 初始数据
       members: [],
       relations: [],
+      customRelationTypes: [],
       selectedMemberId: null,
       highlightedMemberIds: [],
       collapsedNodeIds: [],
@@ -121,6 +136,114 @@ export const useFamilyStore = create<FamilyState>()(
         set((state) => ({
           relations: state.relations.filter((r) => r.id !== id),
         }));
+      },
+
+      // 添加自定义关系类型
+      addCustomRelationType: (definition) => {
+        const colorIndex = get().customRelationTypes.length % CUSTOM_RELATION_COLORS.length;
+        const newDef: CustomRelationTypeDefinition = {
+          ...definition,
+          color: definition.color || CUSTOM_RELATION_COLORS[colorIndex],
+        };
+        set((state) => ({
+          customRelationTypes: [...state.customRelationTypes, newDef],
+        }));
+      },
+
+      // 更新自定义关系类型
+      updateCustomRelationType: (type, updates) => {
+        set((state) => ({
+          customRelationTypes: state.customRelationTypes.map((c) =>
+            c.type === type ? { ...c, ...updates } : c
+          ),
+        }));
+      },
+
+      // 删除自定义关系类型（同时删除使用该类型的关系）
+      deleteCustomRelationType: (type) => {
+        set((state) => ({
+          customRelationTypes: state.customRelationTypes.filter((c) => c.type !== type),
+          relations: state.relations.filter((r) => r.type !== type),
+        }));
+      },
+
+      // 获取所有关系类型（预置 + 自定义）
+      getAllRelationTypes: () => {
+        const builtin = Object.entries(BUILTIN_RELATION_TYPE_LABELS).map(([value, label]) => ({
+          value,
+          label,
+          isCustom: false,
+          color: value === 'parent-child' ? '#52c41a' : value === 'spouse' ? '#f5222d' : value === 'sibling' ? '#faad14' : '#999',
+          subTypes: Object.entries(BUILTIN_RELATION_SUB_TYPE_LABELS)
+            .filter(([k]) => {
+              if (value === 'parent-child') return ['father-son', 'father-daughter', 'mother-son', 'mother-daughter'].includes(k);
+              if (value === 'spouse') return k === 'husband-wife';
+              if (value === 'sibling') return ['brother-brother', 'brother-sister', 'sister-sister'].includes(k);
+              return false;
+            })
+            .map(([v, l]) => ({ value: v, label: l })),
+        }));
+        const custom = get().customRelationTypes.map((c) => ({
+          value: c.type,
+          label: c.label,
+          isCustom: true,
+          color: c.color,
+          subTypes: c.subTypes,
+        }));
+        return [...builtin, ...custom];
+      },
+
+      // 获取关系类型颜色
+      getRelationTypeColor: (type) => {
+        switch (type) {
+          case 'parent-child': return '#52c41a';
+          case 'spouse': return '#f5222d';
+          case 'sibling': return '#faad14';
+          default: {
+            const custom = get().customRelationTypes.find((c) => c.type === type);
+            return custom?.color || '#999';
+          }
+        }
+      },
+
+      // 获取关系类型标签
+      getRelationTypeLabel: (type) => {
+        if (BUILTIN_RELATION_TYPE_LABELS[type]) return BUILTIN_RELATION_TYPE_LABELS[type];
+        const custom = get().customRelationTypes.find((c) => c.type === type);
+        return custom?.label || type;
+      },
+
+      // 获取子类型标签
+      getSubTypeLabel: (type, subType) => {
+        if (!subType) return get().getRelationTypeLabel(type);
+        if (BUILTIN_RELATION_SUB_TYPE_LABELS[subType]) return BUILTIN_RELATION_SUB_TYPE_LABELS[subType];
+        const custom = get().customRelationTypes.find((c) => c.type === type);
+        if (custom) {
+          const sub = custom.subTypes.find((s) => s.value === subType);
+          if (sub) return sub.label;
+        }
+        return subType;
+      },
+
+      // 获取子类型选项
+      getSubTypeOptions: (type) => {
+        const builtinOptions: Record<string, Array<{ value: string; label: string }>> = {
+          'parent-child': [
+            { value: 'father-son', label: '父子' },
+            { value: 'father-daughter', label: '父女' },
+            { value: 'mother-son', label: '母子' },
+            { value: 'mother-daughter', label: '母女' },
+          ],
+          'spouse': [{ value: 'husband-wife', label: '夫妻' }],
+          'sibling': [
+            { value: 'brother-brother', label: '兄弟' },
+            { value: 'brother-sister', label: '兄妹' },
+            { value: 'sister-sister', label: '姐妹' },
+          ],
+        };
+        if (builtinOptions[type]) return builtinOptions[type];
+        const custom = get().customRelationTypes.find((c) => c.type === type);
+        return custom?.subTypes || [];
       },
 
       // 设置选中成员
@@ -274,6 +397,7 @@ export const useFamilyStore = create<FamilyState>()(
         members: state.members,
         relations: state.relations,
         collapsedNodeIds: state.collapsedNodeIds,
+        customRelationTypes: state.customRelationTypes,
       }),
       onRehydrateStorage: () => () => {
         // 不再加载预置数据，初始为空
