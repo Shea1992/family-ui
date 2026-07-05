@@ -18,6 +18,7 @@ import {
   Alert,
   Typography,
   Steps,
+  List,
 } from 'antd';
 import {
   DeleteOutlined,
@@ -27,6 +28,7 @@ import {
   SettingOutlined,
   UploadOutlined,
   FileExcelOutlined,
+  MoreOutlined,
 } from '@ant-design/icons';
 import { useFamilyStore } from '../../stores/familyStore';
 import type { CustomRelationTypeDefinition } from '../../types/relation';
@@ -36,12 +38,14 @@ import {
   downloadRelationTemplate,
   type RelationImportPreview,
 } from '../../services/importService';
+import { useResponsive } from '../../hooks/useResponsive';
 
 const RelationEdit: React.FC = () => {
   const navigate = useNavigate();
   const [form] = Form.useForm();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [relationType, setRelationType] = useState<string>('parent-child');
+  const { isMobile } = useResponsive();
 
   // 自定义类型弹窗
   const [customModalOpen, setCustomModalOpen] = useState(false);
@@ -310,52 +314,100 @@ const RelationEdit: React.FC = () => {
   // 自定义类型管理列表
   const customTypes = allRelationTypes.filter((t) => t.isCustom);
 
-  return (
-    <Card
-      title="关系管理"
-      extra={
-        <Space>
-          <Button
-            icon={<UploadOutlined />}
-            onClick={() => setImportModalOpen(true)}
-          >
-            导入关系
-          </Button>
-          <Button
-            icon={<DownloadOutlined />}
-            onClick={handleExport}
-            disabled={relations.length === 0}
-          >
-            导出Excel
-          </Button>
-          <Button
-            icon={<SettingOutlined />}
-            onClick={() => setManageModalOpen(true)}
-          >
-            管理类型
-          </Button>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => setIsModalOpen(true)}
-            disabled={sortedMembers.length < 2}
-          >
-            添加关系
-          </Button>
-          <Button
-            icon={<ArrowLeftOutlined />}
-            onClick={() => navigate('/')}
-          >
-            返回图谱
-          </Button>
-        </Space>
-      }
-    >
-      {sortedMembers.length < 2 && (
-        <div style={{ padding: '20px 0', color: '#999', textAlign: 'center' }}>
-          需要至少 2 个成员才能添加关系，请先<Button type="link" onClick={() => navigate('/members')}>添加成员</Button>
-        </div>
-      )}
+  // 移动端 extra 按钮
+  const mobileExtra = (
+    <Space size="small" wrap>
+      <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => setIsModalOpen(true)} disabled={sortedMembers.length < 2}>
+        添加
+      </Button>
+      <Button size="small" icon={<SettingOutlined />} onClick={() => setManageModalOpen(true)}>
+        类型
+      </Button>
+      <Button size="small" icon={<MoreOutlined />} onClick={() => setImportModalOpen(true)}>
+        更多
+      </Button>
+    </Space>
+  );
+
+  const desktopExtra = (
+    <Space>
+      <Button
+        icon={<UploadOutlined />}
+        onClick={() => setImportModalOpen(true)}
+      >
+        导入关系
+      </Button>
+      <Button
+        icon={<DownloadOutlined />}
+        onClick={handleExport}
+        disabled={relations.length === 0}
+      >
+        导出Excel
+      </Button>
+      <Button
+        icon={<SettingOutlined />}
+        onClick={() => setManageModalOpen(true)}
+      >
+        管理类型
+      </Button>
+      <Button
+        type="primary"
+        icon={<PlusOutlined />}
+        onClick={() => setIsModalOpen(true)}
+        disabled={sortedMembers.length < 2}
+      >
+        添加关系
+      </Button>
+      <Button
+        icon={<ArrowLeftOutlined />}
+        onClick={() => navigate('/')}
+      >
+        返回图谱
+      </Button>
+    </Space>
+  );
+
+  // 渲染关系列表
+  const renderRelationList = () => {
+    if (isMobile) {
+      return (
+        <List
+          dataSource={relations}
+          renderItem={(record) => {
+            const sourceMember = getMemberById(record.sourceId);
+            const targetMember = getMemberById(record.targetId);
+            const relLabel = record.subType
+              ? getSubTypeLabel(record.type, record.subType)
+              : getRelationTypeLabel(record.type);
+            return (
+              <List.Item
+                style={{ padding: '8px 12px' }}
+                actions={[
+                  <Popconfirm
+                    key="del"
+                    title="确定删除该关系吗？"
+                    onConfirm={() => { deleteRelation(record.id); message.success('关系已删除'); }}
+                    okText="确定"
+                    cancelText="取消"
+                  >
+                    <Button danger size="small" icon={<DeleteOutlined />} />
+                  </Popconfirm>,
+                ]}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span>{sourceMember?.name || '未知'}</span>
+                  <Tag color={getRelationTypeColor(record.type)}>{relLabel}</Tag>
+                  <span>{targetMember?.name || '未知'}</span>
+                </div>
+              </List.Item>
+            );
+          }}
+          pagination={{ pageSize: 10, showTotal: (total) => `共 ${total} 条关系` }}
+        />
+      );
+    }
+
+    return (
       <Table
         columns={columns}
         dataSource={relations}
@@ -368,6 +420,20 @@ const RelationEdit: React.FC = () => {
           emptyText: '暂无关系，请先添加成员并创建关系',
         }}
       />
+    );
+  };
+
+  return (
+    <Card
+      title="关系管理"
+      extra={isMobile ? mobileExtra : desktopExtra}
+    >
+      {sortedMembers.length < 2 && (
+        <div style={{ padding: '20px 0', color: '#999', textAlign: 'center' }}>
+          需要至少 2 个成员才能添加关系，请先<Button type="link" onClick={() => navigate('/members')}>添加成员</Button>
+        </div>
+      )}
+      {renderRelationList()}
 
       {/* 添加关系弹窗 */}
       <Modal
@@ -474,7 +540,7 @@ const RelationEdit: React.FC = () => {
           setNewSubTypeValue('');
           setNewSubTypeLabel('');
         }}
-        width={520}
+        width={isMobile ? '100%' : 520}
       >
         <Form form={customForm} layout="vertical">
           <Form.Item
@@ -549,7 +615,7 @@ const RelationEdit: React.FC = () => {
             </Button>
           </Space>
         }
-        width={560}
+        width={isMobile ? '100%' : 560}
       >
         <div style={{ marginBottom: 16 }}>
           <h4 style={{ marginBottom: 8 }}>预置类型</h4>
@@ -616,7 +682,7 @@ const RelationEdit: React.FC = () => {
       <Modal
         title="导入关系"
         open={importModalOpen}
-        width={700}
+        width={isMobile ? '100%' : 700}
         onCancel={closeImportModal}
         footer={
           <Space>
@@ -670,7 +736,7 @@ const RelationEdit: React.FC = () => {
                 beforeUpload={handleImportFile}
                 showUploadList={false}
                 disabled={importLoading}
-                style={{ padding: 40 }}
+                style={{ padding: isMobile ? 20 : 40 }}
               >
                 <p className="ant-upload-drag-icon">
                   <FileExcelOutlined style={{ fontSize: 48, color: '#52c41a' }} />
