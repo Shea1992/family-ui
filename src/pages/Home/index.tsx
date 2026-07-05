@@ -13,6 +13,7 @@ import {
   Form,
   Select,
   message,
+  Upload,
 } from 'antd';
 import {
   EditOutlined,
@@ -24,6 +25,8 @@ import {
   PlusOutlined,
   MinusOutlined,
   LinkOutlined,
+  SaveOutlined,
+  FolderOpenOutlined,
 } from '@ant-design/icons';
 import { useFamilyStore } from '../../stores/familyStore';
 import { ForceGraph } from '../../components/ForceGraph';
@@ -68,6 +71,8 @@ const Home: React.FC = () => {
     getSubTypeLabel,
     getSubTypeOptions,
     addCustomRelationType,
+    exportData,
+    importData,
   } = useFamilyStore();
 
   // 计算哪些节点有后代（用于显示展开/折叠按钮）
@@ -170,6 +175,52 @@ const Home: React.FC = () => {
       setDetailOpen(false);
     }
   }, [selectedMemberId, deleteMember]);
+
+  // 导出数据为 JSON 文件
+  const handleExportJSON = useCallback(() => {
+    const json = exportData();
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `family-data-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    message.success('数据已导出');
+  }, [exportData]);
+
+  // 从 JSON 文件导入数据
+  const handleImportJSON = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const json = e.target?.result as string;
+        const data = JSON.parse(json);
+        // 验证基本数据结构
+        if (!data.members && !data.relations) {
+          message.error('无效的数据文件：缺少成员或关系数据');
+          return;
+        }
+        Modal.confirm({
+          title: '确认导入数据',
+          content: `即将导入 ${data.members?.length || 0} 个成员和 ${data.relations?.length || 0} 条关系，当前数据将被覆盖。是否继续？`,
+          okText: '确认导入',
+          okType: 'danger',
+          cancelText: '取消',
+          onOk: () => {
+            importData(json);
+            message.success('数据已导入');
+          },
+        });
+      } catch {
+        message.error('文件解析失败，请确认是有效的 JSON 文件');
+      }
+    };
+    reader.readAsText(file);
+    return false; // 阻止 Upload 组件自动上传
+  }, [importData]);
 
   // 所有关系类型选项
   const allRelationTypes = React.useMemo(() => getAllRelationTypes(), [getAllRelationTypes]);
@@ -350,7 +401,7 @@ const Home: React.FC = () => {
         </Space>
       </Card>
 
-      {/* 缩放控制 */}
+      {/* 缩放控制 + 数据管理 */}
       <Card
         size="small"
         style={{
@@ -381,6 +432,18 @@ const Home: React.FC = () => {
           <Tooltip title="适应屏幕">
             <Button icon={<FullscreenOutlined />} onClick={() => graphRef.current?.fitToScreen()} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
           </Tooltip>
+          <Tooltip title="备份数据">
+            <Button icon={<SaveOutlined />} onClick={handleExportJSON} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
+          </Tooltip>
+          <Upload
+            accept=".json"
+            showUploadList={false}
+            beforeUpload={handleImportJSON}
+          >
+            <Tooltip title="恢复数据">
+              <Button icon={<FolderOpenOutlined />} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
+            </Tooltip>
+          </Upload>
         </Space>
       </Card>
 
