@@ -367,24 +367,35 @@ export const useFamilyStore = create<FamilyState>()(
         );
       },
 
-      // 导出数据
+      // 导出数据（包含自定义关系类型）
       exportData: () => {
         const data = {
+          version: 1,
+          exportedAt: new Date().toISOString(),
           members: get().members,
           relations: get().relations,
+          customRelationTypes: get().customRelationTypes,
         };
         return JSON.stringify(data, null, 2);
       },
 
-      // 导入数据
+      // 导入数据（包含自定义关系类型）
       importData: (json) => {
         try {
           const data = JSON.parse(json);
+          const updates: Partial<FamilyState> = {};
           if (data.members && Array.isArray(data.members)) {
-            set({ members: data.members });
+            updates.members = data.members;
           }
           if (data.relations && Array.isArray(data.relations)) {
-            set({ relations: data.relations });
+            updates.relations = data.relations;
+          }
+          // 支持 v1 格式的 customRelationTypes
+          if (data.customRelationTypes && Array.isArray(data.customRelationTypes)) {
+            updates.customRelationTypes = data.customRelationTypes;
+          }
+          if (Object.keys(updates).length > 0) {
+            set(updates as any);
           }
         } catch (e) {
           console.error('Failed to import data:', e);
