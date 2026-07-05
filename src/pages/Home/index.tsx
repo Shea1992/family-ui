@@ -28,7 +28,7 @@ import {
 import { useFamilyStore } from '../../stores/familyStore';
 import { ForceGraph } from '../../components/ForceGraph';
 import type { MemberNode } from '../../types/member';
-import type { RelationLink, RelationType, RelationSubType } from '../../types/relation';
+import type { RelationLink } from '../../types/relation';
 import { COLORS } from '../../constants';
 
 const { Search } = Input;
@@ -41,7 +41,7 @@ const Home: React.FC = () => {
   // 添加关系弹窗状态
   const [relationModalOpen, setRelationModalOpen] = useState(false);
   const [relationForm] = Form.useForm();
-  const [relationType, setRelationType] = useState<RelationType>('parent-child');
+  const [relationType, setRelationType] = useState<string>('parent-child');
 
   const {
     members,
@@ -60,6 +60,12 @@ const Home: React.FC = () => {
     collapseAll,
     getDescendantIds,
     isNodeCollapsed,
+    getAllRelationTypes,
+    getRelationTypeColor,
+    getRelationTypeLabel,
+    getSubTypeLabel,
+    getSubTypeOptions,
+    addCustomRelationType,
   } = useFamilyStore();
 
   // 计算哪些节点有后代（用于显示展开/折叠按钮）
@@ -155,6 +161,9 @@ const Home: React.FC = () => {
     }
   }, [selectedMemberId, deleteMember]);
 
+  // 所有关系类型选项
+  const allRelationTypes = React.useMemo(() => getAllRelationTypes(), [getAllRelationTypes]);
+
   // 打开添加关系弹窗
   const handleOpenRelationModal = useCallback(() => {
     relationForm.resetFields();
@@ -186,11 +195,10 @@ const Home: React.FC = () => {
 
     let sourceId = selectedMemberId;
     let targetId = values.targetId;
-    let subType: RelationSubType | undefined;
+    let subType: string | undefined;
 
     if (values.type === 'parent-child') {
       if (values.direction === 'child') {
-        // 当前成员是父母，target 是子女
         sourceId = selectedMemberId;
         targetId = values.targetId;
         const targetMember = members.find((m) => m.id === values.targetId);
@@ -199,7 +207,6 @@ const Home: React.FC = () => {
           subType = selectedMember?.gender === 'male' ? 'father-daughter' : 'mother-daughter';
         }
       } else {
-        // 当前成员是子女，target 是父母
         sourceId = values.targetId;
         targetId = selectedMemberId;
         const targetMember = members.find((m) => m.id === values.targetId);
@@ -210,6 +217,9 @@ const Home: React.FC = () => {
       }
     } else if (values.type === 'spouse') {
       subType = 'husband-wife';
+    } else {
+      // 自定义关系类型，使用表单中的 subType（如果有）
+      subType = values.subType;
     }
 
     addRelation({
@@ -231,22 +241,13 @@ const Home: React.FC = () => {
     const otherMember = members.find((m) => m.id === otherId);
     if (!otherMember) return null;
 
-    let relationText = '';
-    switch (relation.type) {
-      case 'parent-child':
-        relationText = isSource ? '子女' : '父母';
-        break;
-      case 'spouse':
-        relationText = '配偶';
-        break;
-      case 'sibling':
-        relationText = '兄弟姐妹';
-        break;
-    }
+    const relationText = relation.subType
+      ? getSubTypeLabel(relation.type, relation.subType)
+      : getRelationTypeLabel(relation.type);
 
     return (
       <div key={relation.id}>
-        <Tag color={COLORS.PARENT_CHILD}>{relationText}</Tag>
+        <Tag color={getRelationTypeColor(relation.type)}>{relationText}</Tag>
         {otherMember.name}
         {otherMember.nickname && (
           <span style={{ color: '#999', marginLeft: 8 }}>
@@ -322,6 +323,14 @@ const Home: React.FC = () => {
             <div style={{ color: 'rgba(255,255,255,0.85)' }}>
               <span style={{ color: COLORS.SPOUSE }}>- -</span> 婚姻关系
             </div>
+            <div style={{ color: 'rgba(255,255,255,0.85)' }}>
+              <span style={{ color: COLORS.SIBLING }}>—</span> 兄弟姐妹
+            </div>
+            {allRelationTypes.filter((t) => t.isCustom).map((t) => (
+              <div key={t.value} style={{ color: 'rgba(255,255,255,0.85)' }}>
+                <span style={{ color: t.color }}>· ·</span> {t.label}
+              </div>
+            ))}
           </div>
           <div style={{ marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: 8 }}>
             <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
@@ -375,6 +384,10 @@ const Home: React.FC = () => {
         hasChildrenMap={hasChildrenMap}
         onNodeClick={handleNodeClick}
         onNodeDoubleClick={handleNodeDoubleClick}
+        getRelationTypeColor={getRelationTypeColor}
+        getRelationTypeLabel={getRelationTypeLabel}
+        getSubTypeLabel={getSubTypeLabel}
+        customRelationTypes={useFamilyStore.getState().customRelationTypes}
       />
 
       {/* 成员详情抽屉 */}
@@ -505,11 +518,19 @@ const Home: React.FC = () => {
             <Select
               onChange={(value) => {
                 setRelationType(value);
-                relationForm.setFieldValue('direction', value === 'spouse' ? undefined : 'child');
+                relationForm.setFieldValue('direction', value === 'parent-child' ? 'child' : undefined);
+                relationForm.setFieldValue('subType', undefined);
               }}
             >
-              <Select.Option value="parent-child">血缘关系（父母-子女）</Select.Option>
-              <Select.Option value="spouse">婚姻关系（夫妻）</Select.Option>
+              {allRelationTypes.map((t) => (
+                <Select.Option key={t.value} value={t.value}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', backgroundColor: t.color }} />
+                    {t.label}
+                    {t.isCustom && <span style={{ color: '#999', fontSize: 11 }}>(自定义)</span>}
+                  </span>
+                </Select.Option>
+              ))}
             </Select>
           </Form.Item>
 
@@ -527,6 +548,18 @@ const Home: React.FC = () => {
                 <Select.Option value="parent">
                   {selectedMember?.name} 是子女，关联成员是父母
                 </Select.Option>
+              </Select>
+            </Form.Item>
+          )}
+
+          {relationType !== 'parent-child' && relationType !== 'spouse' && getSubTypeOptions(relationType).length > 0 && (
+            <Form.Item name="subType" label="具体关系">
+              <Select placeholder="选择具体关系（可选）" allowClear>
+                {getSubTypeOptions(relationType).map((opt) => (
+                  <Select.Option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </Select.Option>
+                ))}
               </Select>
             </Form.Item>
           )}
