@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Outlet, useLocation, Link, useNavigate } from 'react-router-dom';
-import { Layout as AntLayout, Menu, Button } from 'antd';
+import { Layout as AntLayout, Menu, Button, Spin } from 'antd';
 import {
   HomeOutlined,
   TeamOutlined,
@@ -72,7 +72,9 @@ export const Layout: React.FC = () => {
       </Header>
 
       <Content style={{ padding: 0, background: '#f0f2f5' }}>
-        <Outlet />
+        <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}><Spin size="large" tip="加载中..." /></div>}>
+          <Outlet />
+        </Suspense>
       </Content>
 
       <Footer style={{ textAlign: 'center', background: '#fff' }}>
