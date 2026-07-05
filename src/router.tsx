@@ -1,9 +1,12 @@
+import { lazy } from 'react';
 import { createHashRouter } from 'react-router-dom';
 import { Layout } from './components/Layout/index.tsx';
-import Home from './pages/Home/index.tsx';
-import MemberList from './pages/MemberList/index.tsx';
-import MemberEdit from './pages/MemberEdit/index.tsx';
-import RelationEdit from './pages/RelationEdit/index.tsx';
+
+// 路由懒加载 - 首屏只加载 Home，其他页面按需加载
+const Home = lazy(() => import('./pages/Home/index.tsx'));
+const MemberList = lazy(() => import('./pages/MemberList/index.tsx'));
+const MemberEdit = lazy(() => import('./pages/MemberEdit/index.tsx'));
+const RelationEdit = lazy(() => import('./pages/RelationEdit/index.tsx'));
 
 export const router = createHashRouter([
   {
