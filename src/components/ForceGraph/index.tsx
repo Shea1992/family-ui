@@ -1,8 +1,15 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import * as d3 from 'd3';
 import type { MemberNode } from '../../types/member';
 import type { RelationLink } from '../../types/relation';
 import { COLORS, FORCE_GRAPH_CONFIG } from '../../constants';
+
+export interface ForceGraphHandle {
+  zoomIn: () => void;
+  zoomOut: () => void;
+  fitToScreen: () => void;
+  focusOnNode: (nodeId: string) => void;
+}
 
 interface ForceGraphProps {
   nodes: MemberNode[];
@@ -19,7 +26,7 @@ interface ForceGraphProps {
   customRelationTypes?: Array<{ type: string; color: string }>;
 }
 
-export const ForceGraph: React.FC<ForceGraphProps> = ({
+export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
   nodes,
   links,
   selectedNodeId,
@@ -32,11 +39,14 @@ export const ForceGraph: React.FC<ForceGraphProps> = ({
   getRelationTypeLabel: getRelationTypeLabelProp,
   getSubTypeLabel: getSubTypeLabelProp,
   customRelationTypes = [],
-}) => {
+}, ref) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const simulationRef = useRef<d3.Simulation<any, any> | null>(null);
   const hoveredNodeIdRef = useRef<string | null>(null);
+  const zoomRef = useRef<d3.ZoomBehavior<any, any> | null>(null);
+  const gRef = useRef<d3.Selection<SVGGElement, any, any, any> | null>(null);
+  const simulatedNodesRef = useRef<any[]>([]);
 
   // 获取性别颜色
   const getGenderColor = useCallback((gender: string) => {
@@ -66,6 +76,72 @@ export const ForceGraph: React.FC<ForceGraphProps> = ({
       }
     }
   }, [getRelationTypeColorProp, customRelationTypes]);
+
+  // 暴露给父组件的方法
+  useImperativeHandle(ref, () => ({
+    zoomIn: () => {
+      const svg = d3.select(svgRef.current!);
+      const zoomBehavior = zoomRef.current;
+      if (!zoomBehavior) return;
+      svg.transition().duration(300).call(zoomBehavior.scaleBy as any, 1.4);
+    },
+    zoomOut: () => {
+      const svg = d3.select(svgRef.current!);
+      const zoomBehavior = zoomRef.current;
+      if (!zoomBehavior) return;
+      svg.transition().duration(300).call(zoomBehavior.scaleBy as any, 1 / 1.4);
+    },
+    fitToScreen: () => {
+      const svg = d3.select(svgRef.current!);
+      const g = gRef.current;
+      const zoomBehavior = zoomRef.current;
+      if (!g || !zoomBehavior || !containerRef.current) return;
+
+      const width = containerRef.current.clientWidth;
+      const height = containerRef.current.clientHeight;
+
+      // 获取当前 g 的边界
+      const bounds = (g.node() as SVGGElement).getBBox();
+      if (bounds.width === 0 || bounds.height === 0) return;
+
+      const fullWidth = bounds.width + 80;
+      const fullHeight = bounds.height + 80;
+      const midX = bounds.x + bounds.width / 2;
+      const midY = bounds.y + bounds.height / 2;
+
+      const scale = Math.min(width / fullWidth, height / fullHeight, 2);
+      const transform = d3.zoomIdentity
+        .translate(width / 2, height / 2)
+        .scale(scale)
+        .translate(-midX, -midY);
+
+      svg.transition().duration(500).call(zoomBehavior.transform as any, transform);
+    },
+    focusOnNode: (nodeId: string) => {
+      const svg = d3.select(svgRef.current!);
+      const zoomBehavior = zoomRef.current;
+      const container = containerRef.current;
+      if (!zoomBehavior || !container) return;
+
+      // 从 simulation 节点数据中查找目标
+      const target = simulatedNodesRef.current.find((n: any) => n.id === nodeId);
+      if (!target || target.x == null || target.y == null) return;
+
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+
+      // 获取当前缩放级别
+      const currentTransform = d3.zoomTransform(svgRef.current!);
+      const scale = currentTransform.k;
+
+      const transform = d3.zoomIdentity
+        .translate(width / 2, height / 2)
+        .scale(scale)
+        .translate(-target.x, -target.y);
+
+      svg.transition().duration(600).call(zoomBehavior.transform as any, transform);
+    },
+  }), []);
 
   // 获取关系类型显示文本
   const getRelationLabel = useCallback((type: string, subType?: string) => {
@@ -209,10 +285,12 @@ export const ForceGraph: React.FC<ForceGraphProps> = ({
 
     // 创建容器组
     const g = svg.append('g');
+    gRef.current = g;
 
     // 准备节点和连线数据
     const simulatedNodes = nodes.map(n => ({ ...n }));
     const simulatedLinks = links.map(l => ({ ...l }));
+    simulatedNodesRef.current = simulatedNodes;
 
     // 创建力模拟器 - 优化参数
     const simulation = d3.forceSimulation(simulatedNodes as any)
@@ -538,6 +616,8 @@ export const ForceGraph: React.FC<ForceGraphProps> = ({
         g.attr('transform', event.transform);
       });
 
+    zoomRef.current = zoom;
+
     svg.call(zoom as any);
 
     // 点击空白处取消选中
@@ -578,4 +658,4 @@ export const ForceGraph: React.FC<ForceGraphProps> = ({
       <svg ref={svgRef} style={{ width: '100%', height: '100%' }} />
     </div>
   );
-};
+});
