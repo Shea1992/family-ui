@@ -17,7 +17,7 @@ import { SaveOutlined, ArrowLeftOutlined, UploadOutlined } from '@ant-design/ico
 import dayjs from 'dayjs';
 import { useFamilyStore } from '../../stores/familyStore';
 import type { MemberFormData, Gender } from '../../types/member';
-import type { RelationType, RelationSubType } from '../../types/relation';
+import { BUILTIN_RELATION_TYPES } from '../../constants';
 
 const { TextArea } = Input;
 
@@ -32,11 +32,13 @@ const MemberEdit: React.FC = () => {
 
   // 关系相关状态（仅在添加成员时可用）
   const [addRelationEnabled, setAddRelationEnabled] = useState(false);
-  const [relationType, setRelationType] = useState<RelationType>('parent-child');
-  const [relationDirection, setRelationDirection] = useState<'parent' | 'child' | 'spouse'>('parent');
+  const [relationType, setRelationType] = useState<string>('parent-child');
+  const [relationDirection, setRelationDirection] = useState<'parent' | 'child'>('parent');
+  const [customSubType, setCustomSubType] = useState<string>('');
   const [relatedMemberId, setRelatedMemberId] = useState<string>('');
 
-  const { members, addMember, updateMember, getMemberById, addRelation } = useFamilyStore();
+  const { members, addMember, updateMember, getMemberById, addRelation,
+    getAllRelationTypes, getSubTypeOptions } = useFamilyStore();
 
   // 编辑模式下加载数据
   useEffect(() => {
@@ -95,11 +97,13 @@ const MemberEdit: React.FC = () => {
         if (addRelationEnabled && relatedMemberId) {
           let sourceId = relatedMemberId;
           let targetId = newMember.id;
-          let subType: RelationSubType | undefined;
+          let subType: string | undefined;
 
-          if (relationType === 'parent-child') {
+          const isBuiltinParentChild = relationType === BUILTIN_RELATION_TYPES.PARENT_CHILD;
+          const isBuiltinSpouse = relationType === BUILTIN_RELATION_TYPES.SPOUSE;
+
+          if (isBuiltinParentChild) {
             if (relationDirection === 'parent') {
-              // 新成员是父母，relatedMemberId 是子女
               sourceId = newMember.id;
               targetId = relatedMemberId;
               const relatedMember = members.find(m => m.id === relatedMemberId);
@@ -108,7 +112,6 @@ const MemberEdit: React.FC = () => {
                 subType = values.gender === 'male' ? 'father-daughter' : 'mother-daughter';
               }
             } else {
-              // 新成员是子女，relatedMemberId 是父母
               sourceId = relatedMemberId;
               targetId = newMember.id;
               const relatedMember = members.find(m => m.id === relatedMemberId);
@@ -117,8 +120,11 @@ const MemberEdit: React.FC = () => {
                 subType = relatedMember?.gender === 'male' ? 'father-daughter' : 'mother-daughter';
               }
             }
-          } else if (relationType === 'spouse') {
+          } else if (isBuiltinSpouse) {
             subType = 'husband-wife';
+          } else {
+            // 自定义关系类型：使用选择的子类型
+            subType = customSubType || undefined;
           }
 
           addRelation({
@@ -230,20 +236,31 @@ const MemberEdit: React.FC = () => {
                     value={relationType}
                     onChange={(value) => {
                       setRelationType(value);
-                      if (value === 'spouse') {
-                        setRelationDirection('spouse');
-                      } else {
+                      setCustomSubType('');
+                      if (value === BUILTIN_RELATION_TYPES.PARENT_CHILD) {
                         setRelationDirection('parent');
                       }
                     }}
                     style={{ width: '100%' }}
                   >
-                    <Select.Option value="parent-child">血缘关系（父母-子女）</Select.Option>
-                    <Select.Option value="spouse">婚姻关系（夫妻）</Select.Option>
+                    {getAllRelationTypes().map((rt) => (
+                      <Select.Option key={rt.value} value={rt.value}>
+                        <Space>
+                          <span style={{
+                            display: 'inline-block',
+                            width: 10,
+                            height: 10,
+                            borderRadius: '50%',
+                            backgroundColor: rt.color,
+                          }} />
+                          {rt.label}{rt.isCustom ? ' (自定义)' : ''}
+                        </Space>
+                      </Select.Option>
+                    ))}
                   </Select>
                 </Form.Item>
 
-                {relationType === 'parent-child' && (
+                {relationType === BUILTIN_RELATION_TYPES.PARENT_CHILD && (
                   <Form.Item label="关系方向" required={addRelationEnabled}>
                     <Select
                       value={relationDirection}
@@ -256,6 +273,28 @@ const MemberEdit: React.FC = () => {
                       <Select.Option value="child">
                         新成员是子女（现有成员是父母）
                       </Select.Option>
+                    </Select>
+                  </Form.Item>
+                )}
+
+                {/* 自定义关系类型的子类型选择 */}
+                {relationType !== BUILTIN_RELATION_TYPES.PARENT_CHILD &&
+                  relationType !== BUILTIN_RELATION_TYPES.SPOUSE &&
+                  relationType !== BUILTIN_RELATION_TYPES.SIBLING &&
+                  getSubTypeOptions(relationType).length > 0 && (
+                  <Form.Item label="具体关系">
+                    <Select
+                      value={customSubType || undefined}
+                      onChange={(value) => setCustomSubType(value)}
+                      placeholder="请选择具体关系"
+                      style={{ width: '100%' }}
+                      allowClear
+                    >
+                      {getSubTypeOptions(relationType).map((st) => (
+                        <Select.Option key={st.value} value={st.value}>
+                          {st.label}
+                        </Select.Option>
+                      ))}
                     </Select>
                   </Form.Item>
                 )}
