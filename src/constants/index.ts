@@ -1,12 +1,12 @@
-// 关系类型常量
-export const RELATION_TYPES = {
+// 关系类型常量（预置）
+export const BUILTIN_RELATION_TYPES = {
   PARENT_CHILD: 'parent-child' as const,
   SPOUSE: 'spouse' as const,
   SIBLING: 'sibling' as const,
 };
 
-// 关系子类型常量
-export const RELATION_SUB_TYPES = {
+// 关系子类型常量（预置）
+export const BUILTIN_RELATION_SUB_TYPES = {
   // 父子关系
   FATHER_SON: 'father-son' as const,
   FATHER_DAUGHTER: 'father-daughter' as const,
@@ -21,6 +21,55 @@ export const RELATION_SUB_TYPES = {
   BROTHER_SISTER: 'brother-sister' as const,
   SISTER_SISTER: 'sister-sister' as const,
 };
+
+// 预置关系类型的子类型选项
+export const BUILTIN_SUB_TYPE_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
+  'parent-child': [
+    { value: 'father-son', label: '父子' },
+    { value: 'father-daughter', label: '父女' },
+    { value: 'mother-son', label: '母子' },
+    { value: 'mother-daughter', label: '母女' },
+  ],
+  'spouse': [{ value: 'husband-wife', label: '夫妻' }],
+  'sibling': [
+    { value: 'brother-brother', label: '兄弟' },
+    { value: 'brother-sister', label: '兄妹' },
+    { value: 'sister-sister', label: '姐妹' },
+  ],
+};
+
+// 预置关系类型的中文标签
+export const BUILTIN_RELATION_TYPE_LABELS: Record<string, string> = {
+  'parent-child': '血缘关系',
+  'spouse': '婚姻关系',
+  'sibling': '兄弟姐妹',
+};
+
+// 预置关系子类型的中文标签
+export const BUILTIN_RELATION_SUB_TYPE_LABELS: Record<string, string> = {
+  'father-son': '父子',
+  'father-daughter': '父女',
+  'mother-son': '母子',
+  'mother-daughter': '母女',
+  'husband-wife': '夫妻',
+  'brother-brother': '兄弟',
+  'brother-sister': '兄妹',
+  'sister-sister': '姐妹',
+};
+
+// 自定义关系类型的预设颜色池
+export const CUSTOM_RELATION_COLORS = [
+  '#8b5cf6', // 紫色
+  '#06b6d4', // 青色
+  '#f59e0b', // 琥珀
+  '#10b981', // 翠绿
+  '#ec4899', // 粉红
+  '#6366f1', // 靛蓝
+  '#14b8a6', // 蓝绿
+  '#f97316', // 橙色
+  '#84cc16', // 草绿
+  '#a855f7', // 兰花紫
+];
 
 // 性别常量
 export const GENDERS = {
