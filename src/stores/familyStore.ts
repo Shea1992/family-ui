@@ -410,8 +410,32 @@ export const useFamilyStore = create<FamilyState>()(
         collapsedNodeIds: state.collapsedNodeIds,
         customRelationTypes: state.customRelationTypes,
       }),
-      onRehydrateStorage: () => () => {
-        // 不再加载预置数据，初始为空
+      onRehydrateStorage: () => (state) => {
+        // localStorage 中无数据时，自动从云端 data.json 拉取
+        if (state && state.members.length === 0 && state.relations.length === 0) {
+          fetch('https://raw.githubusercontent.com/Shea1992/family-ui/dist/data.json', {
+            cache: 'no-cache',
+          })
+            .then((res) => {
+              if (!res.ok) throw new Error('HTTP ' + res.status);
+              return res.json();
+            })
+            .then((data) => {
+              if (data.members?.length || data.relations?.length || data.customRelationTypes?.length) {
+                const updates: Partial<FamilyState> = {};
+                if (data.members && Array.isArray(data.members)) updates.members = data.members;
+                if (data.relations && Array.isArray(data.relations)) updates.relations = data.relations;
+                if (data.customRelationTypes && Array.isArray(data.customRelationTypes)) updates.customRelationTypes = data.customRelationTypes;
+                if (Object.keys(updates).length > 0) {
+                  useFamilyStore.getState().importData(JSON.stringify(data));
+                  console.log('从云端自动加载数据:', (data.members || []).length, '个成员,', (data.relations || []).length, '条关系');
+                }
+              }
+            })
+            .catch((e) => {
+              console.warn('从云端自动加载数据失败:', e.message);
+            });
+        }
       },
     }
   )
