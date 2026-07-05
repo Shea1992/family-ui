@@ -174,8 +174,9 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(({
       const width = container.clientWidth;
       const height = container.clientHeight;
 
+      // 确保聚焦时节点以可读大小显示，最小缩放 1x，最大 2x
       const currentTransform = d3.zoomTransform(svgRef.current!);
-      const scale = currentTransform.k;
+      const scale = Math.min(Math.max(currentTransform.k, 1), 2);
 
       const transform = d3.zoomIdentity
         .translate(width / 2, height / 2)
