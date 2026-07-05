@@ -14,6 +14,10 @@ import {
   Input,
   ColorPicker,
   Divider,
+  Upload,
+  Alert,
+  Typography,
+  Steps,
 } from 'antd';
 import {
   DeleteOutlined,
@@ -21,10 +25,17 @@ import {
   ArrowLeftOutlined,
   DownloadOutlined,
   SettingOutlined,
+  UploadOutlined,
+  FileExcelOutlined,
 } from '@ant-design/icons';
 import { useFamilyStore } from '../../stores/familyStore';
 import type { CustomRelationTypeDefinition } from '../../types/relation';
 import { exportRelationsToExcel } from '../../services/exportService';
+import {
+  importRelationsFromExcel,
+  downloadRelationTemplate,
+  type RelationImportPreview,
+} from '../../services/importService';
 
 const RelationEdit: React.FC = () => {
   const navigate = useNavigate();
@@ -38,6 +49,12 @@ const RelationEdit: React.FC = () => {
 
   // 管理自定义类型弹窗
   const [manageModalOpen, setManageModalOpen] = useState(false);
+
+  // 关系导入弹窗
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importStep, setImportStep] = useState(0);
+  const [importPreview, setImportPreview] = useState<RelationImportPreview | null>(null);
+  const [importLoading, setImportLoading] = useState(false);
 
   // 子类型动态新增
   const [pendingSubTypes, setPendingSubTypes] = useState<Array<{ value: string; label: string }>>([]);
@@ -163,6 +180,63 @@ const RelationEdit: React.FC = () => {
     message.success('导出成功');
   };
 
+  // 关系导入：解析文件
+  const handleImportFile = async (uploadFile: File) => {
+    if (!uploadFile.name.endsWith('.xlsx') && !uploadFile.name.endsWith('.xls')) {
+      message.error('请上传 Excel 文件 (.xlsx 或 .xls)');
+      return false;
+    }
+    setImportLoading(true);
+    try {
+      const result = await importRelationsFromExcel(
+        uploadFile,
+        members.map((m) => ({ id: m.id, name: m.name })),
+        relations.map((r) => ({ sourceId: r.sourceId, targetId: r.targetId, type: r.type })),
+        useFamilyStore.getState().customRelationTypes,
+      );
+      setImportPreview(result);
+      setImportStep(1);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '解析文件失败');
+    } finally {
+      setImportLoading(false);
+    }
+    return false;
+  };
+
+  // 关系导入：确认导入
+  const handleConfirmImport = () => {
+    if (!importPreview) return;
+    setImportLoading(true);
+    try {
+      const nameToId: Record<string, string> = {};
+      members.forEach((m) => { nameToId[m.name] = m.id; });
+
+      let successCount = 0;
+      importPreview.relations.forEach((r) => {
+        const sourceId = nameToId[r.sourceName];
+        const targetId = nameToId[r.targetName];
+        if (sourceId && targetId) {
+          addRelation({ sourceId, targetId, type: r.type, subType: r.subType });
+          successCount++;
+        }
+      });
+
+      message.success(`导入完成，新增 ${successCount} 条关系`);
+      closeImportModal();
+    } catch {
+      message.error('导入失败');
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  const closeImportModal = () => {
+    setImportModalOpen(false);
+    setImportStep(0);
+    setImportPreview(null);
+  };
+
   const columns = [
     {
       title: '成员 A',
@@ -241,6 +315,12 @@ const RelationEdit: React.FC = () => {
       title="关系管理"
       extra={
         <Space>
+          <Button
+            icon={<UploadOutlined />}
+            onClick={() => setImportModalOpen(true)}
+          >
+            导入关系
+          </Button>
           <Button
             icon={<DownloadOutlined />}
             onClick={handleExport}
@@ -530,6 +610,149 @@ const RelationEdit: React.FC = () => {
             暂无自定义类型，点击"新增类型"添加
           </div>
         )}
+      </Modal>
+
+      {/* 关系导入弹窗 */}
+      <Modal
+        title="导入关系"
+        open={importModalOpen}
+        width={700}
+        onCancel={closeImportModal}
+        footer={
+          <Space>
+            {importStep === 0 ? (
+              <Button onClick={closeImportModal}>取消</Button>
+            ) : (
+              <>
+                <Button onClick={() => setImportStep(0)}>返回上一步</Button>
+                <Button
+                  type="primary"
+                  onClick={handleConfirmImport}
+                  loading={importLoading}
+                  disabled={!importPreview || importPreview.errors.length > 0 || importPreview.relations.length === 0}
+                >
+                  确认导入
+                </Button>
+              </>
+            )}
+          </Space>
+        }
+      >
+        <Steps
+          current={importStep}
+          style={{ marginBottom: 24 }}
+          items={[{ title: '上传文件' }, { title: '预览确认' }]}
+        />
+        <div style={{ minHeight: 260 }}>
+          {importStep === 0 && (
+            <Space direction="vertical" style={{ width: '100%' }} size="large">
+              <Alert
+                message="关系导入说明"
+                description={
+                  <Space direction="vertical">
+                    <Typography.Text>1. 请先下载关系导入模板，按模板格式填写</Typography.Text>
+                    <Typography.Text>2. Excel 需包含"关系列表"工作表，表头：成员A姓名、成员B姓名、关系类型、具体关系</Typography.Text>
+                    <Typography.Text>3. 成员姓名必须与已有成员一致，否则导入失败</Typography.Text>
+                    <Typography.Text>4. 已存在的关系会自动跳过</Typography.Text>
+                  </Space>
+                }
+                type="info"
+                showIcon
+              />
+              <Space>
+                <Button icon={<DownloadOutlined />} onClick={downloadRelationTemplate}>
+                  下载模板
+                </Button>
+              </Space>
+              <Upload.Dragger
+                name="file"
+                accept=".xlsx,.xls"
+                beforeUpload={handleImportFile}
+                showUploadList={false}
+                disabled={importLoading}
+                style={{ padding: 40 }}
+              >
+                <p className="ant-upload-drag-icon">
+                  <FileExcelOutlined style={{ fontSize: 48, color: '#52c41a' }} />
+                </p>
+                <p className="ant-upload-text">点击或拖拽 Excel 文件到此区域上传</p>
+                <p className="ant-upload-hint">支持 .xlsx、.xls 格式</p>
+              </Upload.Dragger>
+            </Space>
+          )}
+
+          {importStep === 1 && importPreview && (
+            <Space direction="vertical" style={{ width: '100%' }} size="middle">
+              {importPreview.errors.length > 0 && (
+                <Alert
+                  message={`发现 ${importPreview.errors.length} 个错误`}
+                  description={
+                    <ul style={{ margin: 0, paddingLeft: 16 }}>
+                      {importPreview.errors.slice(0, 10).map((err, i) => <li key={i}>{err}</li>)}
+                      {importPreview.errors.length > 10 && <li>...还有 {importPreview.errors.length - 10} 个错误</li>}
+                    </ul>
+                  }
+                  type="error"
+                  showIcon
+                />
+              )}
+              {importPreview.warnings.length > 0 && (
+                <Alert
+                  message="警告"
+                  description={
+                    <ul style={{ margin: 0, paddingLeft: 16 }}>
+                      {importPreview.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                    </ul>
+                  }
+                  type="warning"
+                  showIcon
+                />
+              )}
+              {importPreview.errors.length === 0 && importPreview.relations.length > 0 && (
+                <Alert
+                  message="数据验证通过"
+                  description={`将导入 ${importPreview.relations.length} 条关系` +
+                    (importPreview.skippedExisting.length > 0 ? `，${importPreview.skippedExisting.length} 条已存在将跳过` : '')}
+                  type="success"
+                  showIcon
+                />
+              )}
+              {importPreview.relations.length > 0 && (
+                <>
+                  <Typography.Text strong>待导入关系 ({importPreview.relations.length})</Typography.Text>
+                  <Table
+                    size="small"
+                    dataSource={importPreview.relations.map((r, i) => ({ ...r, key: i }))}
+                    columns={[
+                      { title: '成员A', dataIndex: 'sourceName', key: 'sourceName' },
+                      { title: '成员B', dataIndex: 'targetName', key: 'targetName' },
+                      { title: '关系类型', dataIndex: 'type', key: 'type', render: (t: string) => getRelationTypeLabel(t) },
+                      { title: '具体关系', dataIndex: 'subType', key: 'subType', render: (s: string, record: typeof importPreview.relations[0]) => s ? getSubTypeLabel(record.type, s) : '-' },
+                    ]}
+                    pagination={{ pageSize: 5 }}
+                    scroll={{ y: 200 }}
+                  />
+                </>
+              )}
+              {importPreview.skippedExisting.length > 0 && (
+                <>
+                  <Typography.Text strong>已存在将跳过 ({importPreview.skippedExisting.length})</Typography.Text>
+                  <Table
+                    size="small"
+                    dataSource={importPreview.skippedExisting.map((r, i) => ({ ...r, key: i }))}
+                    columns={[
+                      { title: '成员A', dataIndex: 'sourceName', key: 'sourceName' },
+                      { title: '成员B', dataIndex: 'targetName', key: 'targetName' },
+                      { title: '原因', dataIndex: 'reason', key: 'reason' },
+                    ]}
+                    pagination={{ pageSize: 5 }}
+                    scroll={{ y: 150 }}
+                  />
+                </>
+              )}
+            </Space>
+          )}
+        </div>
       </Modal>
     </Card>
   );
