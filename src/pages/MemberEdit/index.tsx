@@ -18,6 +18,7 @@ import dayjs from 'dayjs';
 import { useFamilyStore } from '../../stores/familyStore';
 import type { MemberFormData, Gender } from '../../types/member';
 import { BUILTIN_RELATION_TYPES } from '../../constants';
+import { useResponsive } from '../../hooks/useResponsive';
 
 const { TextArea } = Input;
 
@@ -36,6 +37,7 @@ const MemberEdit: React.FC = () => {
   const [relationDirection, setRelationDirection] = useState<'parent' | 'child'>('parent');
   const [customSubType, setCustomSubType] = useState<string>('');
   const [relatedMemberId, setRelatedMemberId] = useState<string>('');
+  const { isMobile } = useResponsive();
 
   const { members, addMember, updateMember, getMemberById, addRelation,
     getAllRelationTypes, getSubTypeOptions } = useFamilyStore();
@@ -149,9 +151,11 @@ const MemberEdit: React.FC = () => {
     <Card
       title={isEdit ? '编辑成员' : '添加成员'}
       extra={
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/members')}>
-          返回列表
-        </Button>
+        isMobile ? null : (
+          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/members')}>
+            返回列表
+          </Button>
+        )
       }
     >
       <Form
@@ -159,7 +163,7 @@ const MemberEdit: React.FC = () => {
         layout="vertical"
         onFinish={handleSubmit}
         autoComplete="off"
-        style={{ maxWidth: 600 }}
+        style={{ maxWidth: isMobile ? '100%' : 600 }}
       >
         <Form.Item
           name="name"
