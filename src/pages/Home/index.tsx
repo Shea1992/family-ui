@@ -31,6 +31,7 @@ import {
   CloudUploadOutlined,
   CloudDownloadOutlined,
   SettingOutlined,
+  MenuOutlined,
 } from '@ant-design/icons';
 import { useFamilyStore } from '../../stores/familyStore';
 import { ForceGraph } from '../../components/ForceGraph';
@@ -38,6 +39,7 @@ import type { ForceGraphHandle } from '../../components/ForceGraph';
 import type { MemberNode } from '../../types/member';
 import type { RelationLink } from '../../types/relation';
 import { COLORS } from '../../constants';
+import { useResponsive } from '../../hooks/useResponsive';
 import {
   loadFromCloud,
   saveToCloud,
@@ -56,11 +58,15 @@ const Home: React.FC = () => {
   const [cloudSyncing, setCloudSyncing] = useState(false);
   const [patModalOpen, setPatModalOpen] = useState(false);
   const [patValue, setPatValue] = useState(getStoredPAT());
+  const { isMobile, isTablet } = useResponsive();
 
   // 添加关系弹窗状态
   const [relationModalOpen, setRelationModalOpen] = useState(false);
   const [relationForm] = Form.useForm();
   const [relationType, setRelationType] = useState<string>('parent-child');
+
+  // 移动端工具面板
+  const [mobileToolbarOpen, setMobileToolbarOpen] = useState(false);
 
   const {
     members,
@@ -171,9 +177,7 @@ const Home: React.FC = () => {
       const results = searchMembers(value);
       const ids = results.map((m) => m.id);
       setHighlightedMembers(ids);
-      // 聚焦到第一个搜索结果
       if (ids.length > 0) {
-        // 延迟一帧让高亮状态先应用到图谱
         setTimeout(() => {
           graphRef.current?.focusOnNode(ids[0]);
         }, 50);
@@ -212,7 +216,6 @@ const Home: React.FC = () => {
       try {
         const json = e.target?.result as string;
         const data = JSON.parse(json);
-        // 验证基本数据结构
         if (!data.members && !data.relations) {
           message.error('无效的数据文件：缺少成员或关系数据');
           return;
@@ -233,7 +236,7 @@ const Home: React.FC = () => {
       }
     };
     reader.readAsText(file);
-    return false; // 阻止 Upload 组件自动上传
+    return false;
   }, [importData]);
 
   // 从云端拉取数据
@@ -325,7 +328,6 @@ const Home: React.FC = () => {
       return;
     }
 
-    // 检查是否已存在相同关系
     const exists = relations.some(
       (r) =>
         ((r.sourceId === selectedMemberId && r.targetId === values.targetId) ||
@@ -363,7 +365,6 @@ const Home: React.FC = () => {
     } else if (values.type === 'spouse') {
       subType = 'husband-wife';
     } else {
-      // 自定义关系类型，使用表单中的 subType（如果有）
       subType = values.subType;
     }
 
@@ -403,23 +404,262 @@ const Home: React.FC = () => {
     );
   };
 
-  return (
-    <div style={{ height: 'calc(100vh - 134px)', position: 'relative' }}>
-      {/* 搜索栏 */}
+  // ===== 图谱高度计算 =====
+  // 移动端：视口 - 顶栏(48) - 底栏(56)
+  // 桌面端：视口 - header(64) - footer(~69)
+  const graphHeight = isMobile
+    ? 'calc(100vh - 104px)'
+    : 'calc(100vh - 134px)';
+
+  // ===== 搜索框样式 =====
+  const searchCardStyle: React.CSSProperties = isMobile
+    ? {
+        position: 'absolute',
+        top: 8,
+        left: 8,
+        right: 8,
+        zIndex: 10,
+        background: 'rgba(255,255,255,0.95)',
+        backdropFilter: 'blur(8px)',
+        borderRadius: 8,
+        boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+      }
+    : {
+        position: 'absolute',
+        top: 16,
+        left: 16,
+        zIndex: 10,
+        width: 300,
+        background: 'rgba(255,255,255,0.95)',
+        backdropFilter: 'blur(8px)',
+        borderRadius: 8,
+        boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+      };
+
+  // ===== 工具栏区域 =====
+  // 移动端：底部浮动菜单弹窗
+  // 桌面端：右下角固定卡片
+
+  const zoomActions = [
+    { icon: <PlusOutlined />, title: '展开所有', onClick: expandAll },
+    { icon: <MinusOutlined />, title: '折叠所有', onClick: collapseAll },
+    { icon: <ZoomInOutlined />, title: '放大', onClick: () => graphRef.current?.zoomIn() },
+    { icon: <ZoomOutOutlined />, title: '缩小', onClick: () => graphRef.current?.zoomOut() },
+    { icon: <FullscreenOutlined />, title: '适应屏幕', onClick: () => graphRef.current?.fitToScreen() },
+  ];
+
+  const dataActions = [
+    { icon: <SaveOutlined />, title: '备份数据', onClick: handleExportJSON },
+    { icon: <FolderOpenOutlined />, title: '恢复数据', onClick: () => {} , isUpload: true },
+    { icon: <CloudDownloadOutlined />, title: '从云端恢复', onClick: handleCloudPull, loading: cloudSyncing },
+    { icon: <CloudUploadOutlined />, title: '同步到云端', onClick: handleCloudPush, loading: cloudSyncing },
+    { icon: <SettingOutlined />, title: '云端设置', onClick: () => { setPatValue(getStoredPAT()); setPatModalOpen(true); } },
+  ];
+
+  // 渲染桌面端工具栏
+  const renderDesktopToolbar = () => (
+    <Card
+      size="small"
+      style={{
+        position: 'absolute',
+        bottom: 16,
+        right: 16,
+        zIndex: 10,
+        background: 'rgba(26,26,46,0.9)',
+        backdropFilter: 'blur(8px)',
+        borderRadius: 8,
+        border: '1px solid rgba(255,255,255,0.1)',
+      }}
+      styles={{ body: { padding: '6px 10px' } }}
+    >
+      <Space>
+        {zoomActions.map((a, i) => (
+          <Tooltip key={i} title={a.title}>
+            <Button icon={a.icon} onClick={a.onClick} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
+          </Tooltip>
+        ))}
+        <Upload accept=".json" showUploadList={false} beforeUpload={handleImportJSON}>
+          <Tooltip title="恢复数据">
+            <Button icon={<FolderOpenOutlined />} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
+          </Tooltip>
+        </Upload>
+        {dataActions.filter(a => !a.isUpload).map((a, i) => (
+          <Tooltip key={i} title={a.title}>
+            <Button icon={a.icon} onClick={a.onClick} loading={a.loading} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
+          </Tooltip>
+        ))}
+      </Space>
+    </Card>
+  );
+
+  // 渲染移动端浮动按钮 + 工具面板
+  const renderMobileToolbar = () => (
+    <>
+      {/* 缩放快捷按钮 - 右下角固定 */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 12,
+          right: 12,
+          zIndex: 10,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+        }}
+      >
+        <Button
+          shape="circle"
+          icon={<ZoomInOutlined />}
+          onClick={() => graphRef.current?.zoomIn()}
+          style={{ background: 'rgba(26,26,46,0.85)', color: '#fff', border: 'none', width: 40, height: 40 }}
+        />
+        <Button
+          shape="circle"
+          icon={<ZoomOutOutlined />}
+          onClick={() => graphRef.current?.zoomOut()}
+          style={{ background: 'rgba(26,26,46,0.85)', color: '#fff', border: 'none', width: 40, height: 40 }}
+        />
+        <Button
+          shape="circle"
+          icon={<FullscreenOutlined />}
+          onClick={() => graphRef.current?.fitToScreen()}
+          style={{ background: 'rgba(26,26,46,0.85)', color: '#fff', border: 'none', width: 40, height: 40 }}
+        />
+        <Button
+          shape="circle"
+          icon={<MenuOutlined />}
+          onClick={() => setMobileToolbarOpen(true)}
+          style={{ background: '#1677ff', color: '#fff', border: 'none', width: 40, height: 40 }}
+        />
+      </div>
+
+      {/* 更多工具面板 - 抽屉形式 */}
+      <Drawer
+        title="工具"
+        placement="bottom"
+        height="auto"
+        open={mobileToolbarOpen}
+        onClose={() => setMobileToolbarOpen(false)}
+        styles={{ body: { padding: '12px 16px' } }}
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+          {[
+            { icon: <PlusOutlined style={{ fontSize: 18 }} />, label: '展开', onClick: expandAll },
+            { icon: <MinusOutlined style={{ fontSize: 18 }} />, label: '折叠', onClick: collapseAll },
+            { icon: <SaveOutlined style={{ fontSize: 18 }} />, label: '备份', onClick: handleExportJSON },
+            { icon: <FolderOpenOutlined style={{ fontSize: 18 }} />, label: '恢复', onClick: () => setMobileToolbarOpen(false) },
+            { icon: <CloudDownloadOutlined style={{ fontSize: 18 }} />, label: '云恢复', onClick: handleCloudPull },
+            { icon: <CloudUploadOutlined style={{ fontSize: 18 }} />, label: '云同步', onClick: handleCloudPush },
+            { icon: <SettingOutlined style={{ fontSize: 18 }} />, label: '云设置', onClick: () => { setPatValue(getStoredPAT()); setPatModalOpen(true); } },
+          ].map((item, i) => (
+            <Button
+              key={i}
+              type="text"
+              onClick={() => { item.onClick(); if (item.label !== '恢复') setMobileToolbarOpen(false); }}
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', height: 'auto', padding: '8px 0', gap: 4 }}
+            >
+              {item.icon}
+              <span style={{ fontSize: 11 }}>{item.label}</span>
+            </Button>
+          ))}
+        </div>
+      </Drawer>
+    </>
+  );
+
+  // ===== 图例 =====
+  const renderLegend = () => {
+    const legendContent = (
+      <Space direction="vertical" size="small">
+        <div style={{ color: 'rgba(255,255,255,0.85)' }}>
+          <span style={{ color: COLORS.MALE }}>●</span> 男性
+        </div>
+        <div style={{ color: 'rgba(255,255,255,0.85)' }}>
+          <span style={{ color: COLORS.FEMALE }}>●</span> 女性
+        </div>
+        <div style={{ color: 'rgba(255,255,255,0.85)' }}>
+          <span style={{ color: COLORS.OTHER }}>●</span> 其他
+        </div>
+        <div style={{ marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: 8 }}>
+          <div style={{ color: 'rgba(255,255,255,0.85)' }}>
+            <span style={{ color: COLORS.PARENT_CHILD }}>—</span> 血缘关系
+          </div>
+          <div style={{ color: 'rgba(255,255,255,0.85)' }}>
+            <span style={{ color: COLORS.SPOUSE }}>- -</span> 婚姻关系
+          </div>
+          <div style={{ color: 'rgba(255,255,255,0.85)' }}>
+            <span style={{ color: COLORS.SIBLING }}>—</span> 兄弟姐妹
+          </div>
+          {allRelationTypes.filter((t) => t.isCustom).map((t) => (
+            <div key={t.value} style={{ color: 'rgba(255,255,255,0.85)' }}>
+              <span style={{ color: t.color }}>· ·</span> {t.label}
+            </div>
+          ))}
+        </div>
+        {!isMobile && (
+          <div style={{ marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: 8 }}>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
+              拖拽节点调整位置 · 双击展开/折叠
+            </div>
+          </div>
+        )}
+      </Space>
+    );
+
+    if (isMobile) {
+      // 移动端：图例用 Popover 点击触发，节省空间
+      return (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 12,
+            left: 12,
+            zIndex: 10,
+          }}
+        >
+          <Popover
+            content={legendContent}
+            trigger="click"
+            overlayStyle={{ background: 'rgba(26,26,46,0.95)' }}
+          >
+            <Button
+              shape="circle"
+              size="small"
+              style={{ background: 'rgba(26,26,46,0.85)', color: '#fff', border: 'none', width: 32, height: 32, fontSize: 14 }}
+            >
+              ●
+            </Button>
+          </Popover>
+        </div>
+      );
+    }
+
+    // 桌面端：固定图例卡片
+    return (
       <Card
         size="small"
         style={{
           position: 'absolute',
-          top: 16,
+          bottom: 16,
           left: 16,
           zIndex: 10,
-          width: 300,
-          background: 'rgba(255,255,255,0.95)',
+          background: 'rgba(26,26,46,0.9)',
           backdropFilter: 'blur(8px)',
           borderRadius: 8,
-          boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+          border: '1px solid rgba(255,255,255,0.1)',
+          color: '#fff',
         }}
+        styles={{ body: { padding: '10px 14px' } }}
       >
+        {legendContent}
+      </Card>
+    );
+  };
+
+  return (
+    <div style={{ height: graphHeight, position: 'relative' }}>
+      {/* 搜索栏 */}
+      <Card size="small" style={searchCardStyle}>
         <Search
           placeholder="搜索成员姓名或小名"
           value={searchKeyword}
@@ -436,109 +676,10 @@ const Home: React.FC = () => {
       </Card>
 
       {/* 图例 */}
-      <Card
-        size="small"
-        style={{
-          position: 'absolute',
-          bottom: 16,
-          left: 16,
-          zIndex: 10,
-          background: 'rgba(26,26,46,0.9)',
-          backdropFilter: 'blur(8px)',
-          borderRadius: 8,
-          border: '1px solid rgba(255,255,255,0.1)',
-          color: '#fff',
-        }}
-        styles={{ body: { padding: '10px 14px' } }}
-      >
-        <Space direction="vertical" size="small">
-          <div style={{ color: 'rgba(255,255,255,0.85)' }}>
-            <span style={{ color: COLORS.MALE }}>●</span> 男性
-          </div>
-          <div style={{ color: 'rgba(255,255,255,0.85)' }}>
-            <span style={{ color: COLORS.FEMALE }}>●</span> 女性
-          </div>
-          <div style={{ color: 'rgba(255,255,255,0.85)' }}>
-            <span style={{ color: COLORS.OTHER }}>●</span> 其他
-          </div>
-          <div style={{ marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: 8 }}>
-            <div style={{ color: 'rgba(255,255,255,0.85)' }}>
-              <span style={{ color: COLORS.PARENT_CHILD }}>—</span> 血缘关系
-            </div>
-            <div style={{ color: 'rgba(255,255,255,0.85)' }}>
-              <span style={{ color: COLORS.SPOUSE }}>- -</span> 婚姻关系
-            </div>
-            <div style={{ color: 'rgba(255,255,255,0.85)' }}>
-              <span style={{ color: COLORS.SIBLING }}>—</span> 兄弟姐妹
-            </div>
-            {allRelationTypes.filter((t) => t.isCustom).map((t) => (
-              <div key={t.value} style={{ color: 'rgba(255,255,255,0.85)' }}>
-                <span style={{ color: t.color }}>· ·</span> {t.label}
-              </div>
-            ))}
-          </div>
-          <div style={{ marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: 8 }}>
-            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
-              拖拽节点调整位置 · 双击展开/折叠
-            </div>
-          </div>
-        </Space>
-      </Card>
+      {renderLegend()}
 
-      {/* 缩放控制 + 数据管理 */}
-      <Card
-        size="small"
-        style={{
-          position: 'absolute',
-          bottom: 16,
-          right: 16,
-          zIndex: 10,
-          background: 'rgba(26,26,46,0.9)',
-          backdropFilter: 'blur(8px)',
-          borderRadius: 8,
-          border: '1px solid rgba(255,255,255,0.1)',
-        }}
-        styles={{ body: { padding: '6px 10px' } }}
-      >
-        <Space>
-          <Tooltip title="展开所有">
-            <Button icon={<PlusOutlined />} onClick={expandAll} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
-          </Tooltip>
-          <Tooltip title="折叠所有">
-            <Button icon={<MinusOutlined />} onClick={collapseAll} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
-          </Tooltip>
-          <Tooltip title="放大">
-            <Button icon={<ZoomInOutlined />} onClick={() => graphRef.current?.zoomIn()} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
-          </Tooltip>
-          <Tooltip title="缩小">
-            <Button icon={<ZoomOutOutlined />} onClick={() => graphRef.current?.zoomOut()} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
-          </Tooltip>
-          <Tooltip title="适应屏幕">
-            <Button icon={<FullscreenOutlined />} onClick={() => graphRef.current?.fitToScreen()} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
-          </Tooltip>
-          <Tooltip title="备份数据">
-            <Button icon={<SaveOutlined />} onClick={handleExportJSON} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
-          </Tooltip>
-          <Upload
-            accept=".json"
-            showUploadList={false}
-            beforeUpload={handleImportJSON}
-          >
-            <Tooltip title="恢复数据">
-              <Button icon={<FolderOpenOutlined />} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
-            </Tooltip>
-          </Upload>
-          <Tooltip title="从云端恢复">
-            <Button icon={<CloudDownloadOutlined />} onClick={handleCloudPull} loading={cloudSyncing} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
-          </Tooltip>
-          <Tooltip title="同步到云端">
-            <Button icon={<CloudUploadOutlined />} onClick={handleCloudPush} loading={cloudSyncing} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
-          </Tooltip>
-          <Tooltip title="云端设置">
-            <Button icon={<SettingOutlined />} onClick={() => { setPatValue(getStoredPAT()); setPatModalOpen(true); }} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
-          </Tooltip>
-        </Space>
-      </Card>
+      {/* 工具栏 */}
+      {isMobile ? renderMobileToolbar() : renderDesktopToolbar()}
 
       {/* PAT Token 设置弹窗 */}
       <Modal
@@ -594,39 +735,41 @@ const Home: React.FC = () => {
 
       {/* 成员详情抽屉 */}
       <Drawer
-        title="成员详情"
-        placement="right"
-        width={400}
+        title={selectedMember?.name || '成员详情'}
+        placement={isMobile ? 'bottom' : 'right'}
+        width={isMobile ? '100%' : 400}
+        height={isMobile ? '75vh' : undefined}
         open={detailOpen}
         onClose={() => {
           setDetailOpen(false);
           setSelectedMember(null);
         }}
         extra={
-          <Space>
+          <Space size="small" wrap>
             <Button
               type="primary"
+              size={isMobile ? 'middle' : 'middle'}
               icon={<LinkOutlined />}
               onClick={handleOpenRelationModal}
             >
-              添加关系
+              {isMobile ? '关系' : '添加关系'}
             </Button>
             <Button
               type="primary"
               icon={<EditOutlined />}
               onClick={() => navigate(`/members/${selectedMemberId}/edit`)}
             >
-              编辑
+              {isMobile ? '编辑' : '编辑'}
             </Button>
             <Button danger icon={<DeleteOutlined />} onClick={handleDelete}>
-              删除
+              {isMobile ? '删除' : '删除'}
             </Button>
           </Space>
         }
       >
         {selectedMember && (
           <>
-            <Descriptions column={1} bordered>
+            <Descriptions column={1} bordered size={isMobile ? 'small' : 'default'}>
               <Descriptions.Item label="姓名">
                 {selectedMember.name}
               </Descriptions.Item>
