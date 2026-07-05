@@ -29,7 +29,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, onSucce
   const [loading, setLoading] = useState(false);
   const [file, setFile] = useState<File | null>(null);
 
-  const { members, addMember, addRelation, getMemberById } = useFamilyStore();
+  const { members, addMember, addRelation, getMemberById, customRelationTypes, getRelationTypeLabel, getSubTypeLabel } = useFamilyStore();
 
   const handleDownloadTemplate = () => {
     downloadTemplate();
@@ -46,7 +46,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, onSucce
     setLoading(true);
 
     try {
-      const result = await importFromExcel(uploadFile, members);
+      const result = await importFromExcel(uploadFile, members, customRelationTypes);
       setPreview(result);
       setCurrentStep(1);
     } catch (error) {
@@ -249,28 +249,8 @@ export const ImportModal: React.FC<ImportModalProps> = ({ open, onClose, onSucce
                 columns={[
                   { title: '成员A', dataIndex: 'sourceName', key: 'sourceName' },
                   { title: '成员B', dataIndex: 'targetName', key: 'targetName' },
-                  { title: '关系类型', dataIndex: 'type', key: 'type', render: (t: string) => {
-                    const map: Record<string, string> = {
-                      'parent-child': '血缘关系',
-                      'spouse': '婚姻关系',
-                      'sibling': '兄弟姐妹',
-                    };
-                    return map[t] || t;
-                  }},
-                  { title: '具体关系', dataIndex: 'subType', key: 'subType', render: (s: string) => {
-                    if (!s) return '-';
-                    const map: Record<string, string> = {
-                      'father-son': '父子',
-                      'father-daughter': '父女',
-                      'mother-son': '母子',
-                      'mother-daughter': '母女',
-                      'husband-wife': '夫妻',
-                      'brother-brother': '兄弟',
-                      'brother-sister': '兄妹',
-                      'sister-sister': '姐妹',
-                    };
-                    return map[s] || s;
-                  }},
+                  { title: '关系类型', dataIndex: 'type', key: 'type', render: (t: string) => getRelationTypeLabel(t) },
+                  { title: '具体关系', dataIndex: 'subType', key: 'subType', render: (s: string) => s ? getSubTypeLabel(s) : '-' },
                 ]}
                 pagination={{ pageSize: 5 }}
                 scroll={{ y: 200 }}
