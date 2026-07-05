@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import type { MemberFormData, Gender } from '../types/member';
-import type { RelationFormData, RelationType, RelationSubType } from '../types/relation';
+import type { RelationFormData } from '../types/relation';
+import { BUILTIN_RELATION_SUB_TYPE_LABELS } from '../constants';
 
 export interface ImportResult {
   members: MemberFormData[];
@@ -107,8 +108,8 @@ const parseMembersSheet = (worksheet: XLSX.WorkSheet): Partial<MemberFormData>[]
 const parseRelationsSheet = (worksheet: XLSX.WorkSheet): Array<{
   sourceName: string;
   targetName: string;
-  type: RelationType;
-  subType?: RelationSubType;
+  type: string;
+  subType?: string;
 }> => {
   const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as string[][];
 
@@ -122,16 +123,16 @@ const parseRelationsSheet = (worksheet: XLSX.WorkSheet): Array<{
   const relations: Array<{
     sourceName: string;
     targetName: string;
-    type: RelationType;
-    subType?: RelationSubType;
+    type: string;
+    subType?: string;
   }> = [];
 
   rows.forEach((row) => {
     const relation: Partial<{
       sourceName: string;
       targetName: string;
-      type: RelationType;
-      subType: RelationSubType;
+      type: string;
+      subType?: string;
     }> = {};
 
     headers.forEach((header, colIndex) => {
@@ -147,11 +148,11 @@ const parseRelationsSheet = (worksheet: XLSX.WorkSheet): Array<{
           relation.targetName = value ? String(value).trim() : '';
           break;
         case '关系类型':
-          relation.type = String(value).trim() as RelationType;
+          relation.type = String(value).trim();
           break;
         case '具体关系':
           if (value) {
-            relation.subType = String(value).trim() as RelationSubType;
+            relation.subType = String(value).trim();
           }
           break;
       }
@@ -219,15 +220,21 @@ const validateMembers = (members: Partial<MemberFormData>[]): { valid: MemberFor
 
 /**
  * 验证关系数据
+ * @param customRelationTypes 自定义关系类型列表
  */
 const validateRelations = (
   relations: Array<{
     sourceName: string;
     targetName: string;
-    type: RelationType;
-    subType?: RelationSubType;
+    type: string;
+    subType?: string;
   }>,
-  memberNames: Set<string>
+  memberNames: Set<string>,
+  customRelationTypes: Array<{
+    type: string;
+    label: string;
+    subTypes: Array<{ value: string; label: string }>;
+  }> = [],
 ): {
   valid: Array<Omit<RelationFormData, 'sourceId' | 'targetId'> & { sourceName: string; targetName: string }>;
   errors: string[];
@@ -236,6 +243,19 @@ const validateRelations = (
   const valid: Array<Omit<RelationFormData, 'sourceId' | 'targetId'> & { sourceName: string; targetName: string }> = [];
   const errors: string[] = [];
   const warnings: string[] = [];
+
+  // 构建所有合法的类型和子类型映射
+  const allTypes = new Set(['parent-child', 'spouse', 'sibling']);
+  const builtinSubTypes: Record<string, string[]> = {
+    'parent-child': ['father-son', 'father-daughter', 'mother-son', 'mother-daughter'],
+    'spouse': ['husband-wife'],
+    'sibling': ['brother-brother', 'brother-sister', 'sister-sister'],
+  };
+  const customSubTypeMap: Record<string, string[]> = {};
+  customRelationTypes.forEach((c) => {
+    allTypes.add(c.type);
+    customSubTypeMap[c.type] = c.subTypes.map((s) => s.value);
+  });
 
   relations.forEach((relation, index) => {
     const rowNum = index + 2;
@@ -258,34 +278,29 @@ const validateRelations = (
     }
 
     // 验证关系类型
-    const validTypes: RelationType[] = ['parent-child', 'spouse', 'sibling'];
-    if (!validTypes.includes(relation.type)) {
-      errors.push(`第 ${rowNum} 行：关系类型必须是 parent-child/spouse/sibling`);
+    if (!allTypes.has(relation.type)) {
+      const builtinLabels: Record<string, string> = { 'parent-child': '血缘关系', 'spouse': '婚姻关系', 'sibling': '兄弟姐妹' };
+      const typeOptions = [
+        ...Object.entries(builtinLabels).map(([k, v]) => `${v}(${k})`),
+        ...customRelationTypes.map((c) => `${c.label}(${c.type})`),
+      ];
+      errors.push(`第 ${rowNum} 行：关系类型 "${relation.type}" 不合法，可选类型：${typeOptions.join('、')}`);
       return;
     }
 
     // 验证具体关系合法性
-    const validSubTypes: Record<RelationType, string[]> = {
-      'parent-child': ['father-son', 'father-daughter', 'mother-son', 'mother-daughter'],
-      'spouse': ['husband-wife'],
-      'sibling': ['brother-brother', 'brother-sister', 'sister-sister'],
-    };
     if (relation.subType) {
-      const allowed = validSubTypes[relation.type] || [];
-      if (!allowed.includes(relation.subType)) {
-        const subTypeLabels: Record<string, string> = {
-          'father-son': '父子', 'father-daughter': '父女',
-          'mother-son': '母子', 'mother-daughter': '母女',
-          'husband-wife': '夫妻',
-          'brother-brother': '兄弟', 'brother-sister': '兄妹', 'sister-sister': '姐妹',
-        };
-        const allowedLabels = allowed.map(s => `${subTypeLabels[s]}(${s})`).join('、');
-        errors.push(`第 ${rowNum} 行：关系类型为"${relation.type}"时，具体关系只能是：${allowedLabels}`);
+      const allowedSubTypes = builtinSubTypes[relation.type] || customSubTypeMap[relation.type] || [];
+      if (!allowedSubTypes.includes(relation.subType)) {
+        const subTypeLabels = { ...BUILTIN_RELATION_SUB_TYPE_LABELS };
+        customRelationTypes.forEach((c) => c.subTypes.forEach((s) => { subTypeLabels[s.value] = s.label; }));
+        const allowedLabels = allowedSubTypes.map(s => `${subTypeLabels[s] || s}(${s})`).join('、');
+        errors.push(`第 ${rowNum} 行：关系类型为"${relation.type}"时，具体关系只能是：${allowedLabels || '无'}`);
         return;
       }
     }
 
-    valid.push(relation);
+    valid.push(relation as any);
   });
 
   return { valid, errors, warnings };
@@ -296,7 +311,12 @@ const validateRelations = (
  */
 export const importFromExcel = async (
   file: File,
-  existingMembers: { name: string }[]
+  existingMembers: { name: string }[],
+  customRelationTypes: Array<{
+    type: string;
+    label: string;
+    subTypes: Array<{ value: string; label: string }>;
+  }> = [],
 ): Promise<ImportPreview> => {
   const workbook = await parseExcelFile(file);
 
@@ -327,8 +347,8 @@ export const importFromExcel = async (
   let relationsData: Array<{
     sourceName: string;
     targetName: string;
-    type: RelationType;
-    subType?: RelationSubType;
+    type: string;
+    subType?: string;
   }> = [];
   const relationsSheet = workbook.Sheets['关系列表'] || workbook.Sheets['Relations'] || workbook.Sheets[workbook.SheetNames[1]];
   if (relationsSheet) {
@@ -339,7 +359,8 @@ export const importFromExcel = async (
   const allMemberNames = new Set([...existingNames, ...validMembers.map((m) => m.name)]);
   const { valid: validRelations, errors: relationErrors, warnings: relationWarnings } = validateRelations(
     relationsData,
-    allMemberNames
+    allMemberNames,
+    customRelationTypes,
   );
 
   return {
