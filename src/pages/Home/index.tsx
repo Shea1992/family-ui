@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Card,
@@ -14,6 +14,7 @@ import {
   Select,
   message,
   Upload,
+  Popover,
 } from 'antd';
 import {
   EditOutlined,
@@ -27,6 +28,9 @@ import {
   LinkOutlined,
   SaveOutlined,
   FolderOpenOutlined,
+  CloudUploadOutlined,
+  CloudDownloadOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { useFamilyStore } from '../../stores/familyStore';
 import { ForceGraph } from '../../components/ForceGraph';
@@ -34,6 +38,13 @@ import type { ForceGraphHandle } from '../../components/ForceGraph';
 import type { MemberNode } from '../../types/member';
 import type { RelationLink } from '../../types/relation';
 import { COLORS } from '../../constants';
+import {
+  loadFromCloud,
+  saveToCloud,
+  getStoredPAT,
+  storePAT,
+  clearPAT,
+} from '../../services/cloudSyncService';
 
 const { Search } = Input;
 
@@ -42,6 +53,9 @@ const Home: React.FC = () => {
   const graphRef = useRef<ForceGraphHandle>(null);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [detailOpen, setDetailOpen] = useState(false);
+  const [cloudSyncing, setCloudSyncing] = useState(false);
+  const [patModalOpen, setPatModalOpen] = useState(false);
+  const [patValue, setPatValue] = useState(getStoredPAT());
 
   // 添加关系弹窗状态
   const [relationModalOpen, setRelationModalOpen] = useState(false);
@@ -221,6 +235,76 @@ const Home: React.FC = () => {
     reader.readAsText(file);
     return false; // 阻止 Upload 组件自动上传
   }, [importData]);
+
+  // 从云端拉取数据
+  const handleCloudPull = useCallback(async () => {
+    setCloudSyncing(true);
+    try {
+      const cloudData = await loadFromCloud();
+      if (!cloudData) {
+        message.info('云端暂无数据');
+        return;
+      }
+      const cloudJson = JSON.stringify(cloudData);
+      Modal.confirm({
+        title: '从云端恢复数据',
+        content: `云端有 ${cloudData.members.length} 个成员和 ${cloudData.relations.length} 条关系，当前本地数据将被覆盖。是否继续？`,
+        okText: '确认恢复',
+        okType: 'danger',
+        cancelText: '取消',
+        onOk: () => {
+          importData(cloudJson);
+          message.success('云端数据已恢复');
+        },
+      });
+    } catch {
+      message.error('从云端加载失败');
+    } finally {
+      setCloudSyncing(false);
+    }
+  }, [importData]);
+
+  // 推送数据到云端
+  const handleCloudPush = useCallback(async () => {
+    const pat = getStoredPAT();
+    if (!pat) {
+      setPatModalOpen(true);
+      message.info('请先设置 GitHub Token 以便同步到云端');
+      return;
+    }
+    setCloudSyncing(true);
+    try {
+      const json = exportData();
+      const data = JSON.parse(json);
+      const result = await saveToCloud(data);
+      if (result.success) {
+        message.success('数据已同步到云端');
+      } else {
+        if (result.error?.includes('PAT')) {
+          setPatModalOpen(true);
+        } else {
+          message.error(result.error || '同步失败');
+        }
+      }
+    } catch {
+      message.error('同步到云端失败');
+    } finally {
+      setCloudSyncing(false);
+    }
+  }, [exportData]);
+
+  // 保存 PAT
+  const handleSavePAT = useCallback(() => {
+    if (patValue.trim()) {
+      storePAT(patValue.trim());
+      message.success('Token 已保存');
+      setPatModalOpen(false);
+    } else {
+      clearPAT();
+      message.info('Token 已清除');
+      setPatModalOpen(false);
+    }
+  }, [patValue]);
 
   // 所有关系类型选项
   const allRelationTypes = React.useMemo(() => getAllRelationTypes(), [getAllRelationTypes]);
@@ -444,8 +528,52 @@ const Home: React.FC = () => {
               <Button icon={<FolderOpenOutlined />} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
             </Tooltip>
           </Upload>
+          <Tooltip title="从云端恢复">
+            <Button icon={<CloudDownloadOutlined />} onClick={handleCloudPull} loading={cloudSyncing} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
+          </Tooltip>
+          <Tooltip title="同步到云端">
+            <Button icon={<CloudUploadOutlined />} onClick={handleCloudPush} loading={cloudSyncing} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
+          </Tooltip>
+          <Tooltip title="云端设置">
+            <Button icon={<SettingOutlined />} onClick={() => { setPatValue(getStoredPAT()); setPatModalOpen(true); }} type="text" style={{ color: 'rgba(255,255,255,0.85)' }} />
+          </Tooltip>
         </Space>
       </Card>
+
+      {/* PAT Token 设置弹窗 */}
+      <Modal
+        title="云端同步设置"
+        open={patModalOpen}
+        onOk={handleSavePAT}
+        onCancel={() => setPatModalOpen(false)}
+        okText="保存"
+        cancelText="取消"
+      >
+        <div style={{ marginBottom: 16 }}>
+          <p style={{ fontSize: 13, color: '#666', lineHeight: 1.8 }}>
+            数据存储在 GitHub 仓库的 data.json 文件中。
+          </p>
+          <p style={{ fontSize: 13, color: '#666', lineHeight: 1.8 }}>
+            从云端恢复不需要 Token（公开仓库可直接读取），同步到云端需要 GitHub Personal Access Token（需要 repo 权限）。
+          </p>
+        </div>
+        <Input.Password
+          placeholder="输入 GitHub PAT Token"
+          value={patValue}
+          onChange={(e) => setPatValue(e.target.value)}
+        />
+        {getStoredPAT() && (
+          <Button
+            type="link"
+            danger
+            size="small"
+            style={{ marginTop: 8 }}
+            onClick={() => { clearPAT(); setPatValue(''); message.success('Token 已清除'); }}
+          >
+            清除已保存的 Token
+          </Button>
+        )}
+      </Modal>
 
       {/* 力导向图 */}
       <ForceGraph
