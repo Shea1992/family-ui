@@ -13,6 +13,10 @@ interface ForceGraphProps {
   hasChildrenMap?: Record<string, boolean>;
   onNodeClick?: (node: MemberNode | null) => void;
   onNodeDoubleClick?: (node: MemberNode) => void;
+  getRelationTypeColor?: (type: string) => string;
+  getRelationTypeLabel?: (type: string) => string;
+  getSubTypeLabel?: (type: string, subType?: string) => string;
+  customRelationTypes?: Array<{ type: string; color: string }>;
 }
 
 export const ForceGraph: React.FC<ForceGraphProps> = ({
@@ -24,6 +28,10 @@ export const ForceGraph: React.FC<ForceGraphProps> = ({
   hasChildrenMap = {},
   onNodeClick,
   onNodeDoubleClick,
+  getRelationTypeColor: getRelationTypeColorProp,
+  getRelationTypeLabel: getRelationTypeLabelProp,
+  getSubTypeLabel: getSubTypeLabelProp,
+  customRelationTypes = [],
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -44,6 +52,7 @@ export const ForceGraph: React.FC<ForceGraphProps> = ({
 
   // 获取关系连线颜色
   const getLinkColor = useCallback((type: string) => {
+    if (getRelationTypeColorProp) return getRelationTypeColorProp(type);
     switch (type) {
       case 'parent-child':
         return COLORS.PARENT_CHILD;
@@ -51,13 +60,20 @@ export const ForceGraph: React.FC<ForceGraphProps> = ({
         return COLORS.SPOUSE;
       case 'sibling':
         return COLORS.SIBLING;
-      default:
-        return '#999';
+      default: {
+        const custom = customRelationTypes.find((c) => c.type === type);
+        return custom?.color || '#999';
+      }
     }
-  }, []);
+  }, [getRelationTypeColorProp, customRelationTypes]);
 
   // 获取关系类型显示文本
   const getRelationLabel = useCallback((type: string, subType?: string) => {
+    // 优先使用 store 提供的方法
+    if (subType && getSubTypeLabelProp) return getSubTypeLabelProp(type, subType);
+    if (!subType && getRelationTypeLabelProp) return getRelationTypeLabelProp(type);
+
+    // fallback 本地映射
     const subTypeMap: Record<string, string> = {
       'father-son': '父子',
       'father-daughter': '父女',
@@ -80,7 +96,7 @@ export const ForceGraph: React.FC<ForceGraphProps> = ({
     };
 
     return typeMap[type] || type;
-  }, []);
+  }, [getSubTypeLabelProp, getRelationTypeLabelProp]);
 
   useEffect(() => {
     if (!svgRef.current || !containerRef.current) return;
@@ -234,7 +250,12 @@ export const ForceGraph: React.FC<ForceGraphProps> = ({
       .attr('class', 'link')
       .attr('stroke', (d: any) => getLinkColor(d.type))
       .attr('stroke-width', 2)
-      .attr('stroke-dasharray', (d: any) => d.type === 'spouse' ? '8,4' : '0')
+      .attr('stroke-dasharray', (d: any) => {
+        if (d.type === 'spouse') return '8,4';
+        // 自定义类型用点线
+        if (!['parent-child', 'spouse', 'sibling'].includes(d.type)) return '4,4';
+        return '0';
+      })
       .attr('stroke-opacity', 0.5)
       .attr('marker-end', (d: any) =>
         d.type === 'parent-child' ? 'url(#arrow-parent-child)' : ''
@@ -547,7 +568,7 @@ export const ForceGraph: React.FC<ForceGraphProps> = ({
       simulationRef.current = null;
       if (animFrame) cancelAnimationFrame(animFrame);
     };
-  }, [nodes, links, selectedNodeId, highlightedNodeIds, collapsedNodeIds, hasChildrenMap, onNodeClick, onNodeDoubleClick, getGenderColor, getLinkColor, getRelationLabel]);
+  }, [nodes, links, selectedNodeId, highlightedNodeIds, collapsedNodeIds, hasChildrenMap, onNodeClick, onNodeDoubleClick, getGenderColor, getLinkColor, getRelationLabel, getRelationTypeColorProp, getRelationTypeLabelProp, getSubTypeLabelProp, customRelationTypes]);
 
   return (
     <div
